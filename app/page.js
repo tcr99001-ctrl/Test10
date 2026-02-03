@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Lock, Skull, Fingerprint, Search, AlertTriangle, WifiOff, Gavel, UserX, RefreshCw, FileText,
   Shield, Zap, Droplet, Play
@@ -275,4 +275,4 @@ export default function MysteryMurder() {
   }
 
   return <div className="h-screen bg-black text-white flex items-center justify-center">Loading...</div>;
-      }
+          }
