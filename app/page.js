@@ -1,16 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { db } from '../utils/firebase'; // 실제 프로젝트에 맞게 조정 (또는 주석 처리)
-import { doc, onSnapshot, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { 
   Lock, Skull, Fingerprint, Search, AlertTriangle, WifiOff, Gavel, UserX, RefreshCw, FileText,
-  Shield, Zap, Droplet, Crosshair, Hexagon, Siren, Play
+  Shield, Zap, Droplet, Play
 } from 'lucide-react';
 
 // ===================== 상수 & 데이터 =====================
-const ROOM_ID = 'room_test'; // 테스트용 고정
-const GAME_DURATION = 600; // 10분
+const GAME_DURATION = 600; // 10분 (초)
 const WEAPON_DB = {
   Physical: [
     { id: 'w_knife', name: 'Ceramic Blade', desc: '금속 탐지기 회피 가능', hint: 'Clean Cut', type: 'Physical' },
@@ -29,7 +26,7 @@ const WEAPON_DB = {
 
 const TOOLS = [
   { id: 'luminol', name: 'Luminol', icon: Droplet, cost: 50, detect: 'Chemical' },
-  { id: 'metal', name: 'Metal Detector', icon: Scan, cost: 40, detect: 'Physical' },
+  { id: 'metal', name: 'Metal Detector', icon: Search, cost: 40, detect: 'Physical' },
   { id: 'hack', name: 'Signal Trace', icon: Zap, cost: 60, detect: 'Digital' },
 ];
 
@@ -41,26 +38,18 @@ const CLUES = [
 
 // ===================== 메인 컴포넌트 =====================
 export default function MysteryMurder() {
-  const [user, setUser] = useState({ uid: 'test_user', displayName: 'You' }); // 테스트용
-  const [gameData, setGameData] = useState({
-    gamePhase: 'LOBBY',
-    roles: {},
-    players: {
-      test_user: { displayName: 'You', role: null },
-      ai1: { displayName: 'Alex', role: null },
-      ai2: { displayName: 'Jordan', role: null },
-      ai3: { displayName: 'Taylor', role: null },
-    },
-    crimeData: { weapon: null },
-    logs: [],
-    traceRate: 0,
-    evidenceList: [],
-    truthLogs: [],
-    winner: null,
-  });
-
+  const [phase, setPhase] = useState('LOBBY'); // LOBBY, ROLE_REVEAL, SETUP, INVESTIGATION, VOTING, ENDED
+  const [players, setPlayers] = useState([
+    { id: 'p1', name: 'You', role: null, isKiller: false },
+    { id: 'p2', name: 'Alex', role: null, isKiller: false },
+    { id: 'p3', name: 'Jordan', role: null, isKiller: false },
+    { id: 'p4', name: 'Taylor', role: null, isKiller: false },
+  ]);
+  const [myId, setMyId] = useState('p1'); // 나 자신
   const [hasSeenRole, setHasSeenRole] = useState(false);
   const [selectedWeapon, setSelectedWeapon] = useState(null);
+  const [traceRate, setTraceRate] = useState(0);
+  const [evidenceList, setEvidenceList] = useState([]);
   const [battery, setBattery] = useState(100);
   const [scanResult, setScanResult] = useState(null);
   const [selectedTool, setSelectedTool] = useState(null);
@@ -69,43 +58,29 @@ export default function MysteryMurder() {
   const [selectedSuspect, setSelectedSuspect] = useState(null);
   const [endStep, setEndStep] = useState(0);
   const [showFinalMessage, setShowFinalMessage] = useState(false);
+  const [truthLogs, setTruthLogs] = useState([]);
+  const [winner, setWinner] = useState(null);
 
-  // ===================== Firebase 모킹 (실제 배포 시 활성화) =====================
-  // useEffect(() => {
-  //   const roomRef = doc(db, 'rooms', ROOM_ID);
-  //   const unsub = onSnapshot(roomRef, snap => {
-  //     if (snap.exists()) setGameData(snap.data());
-  //   });
-  //   return unsub;
-  // }, []);
-
-  // ===================== 역할 배정 (게임 시작 시) =====================
+  // 역할 배정
   const startGame = () => {
-    const playerIds = Object.keys(gameData.players);
-    const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
-    const killerId = shuffled[0];
-
-    const newRoles = {};
-    playerIds.forEach(id => {
-      newRoles[id] = {
-        role: id === killerId ? 'Killer' : 'Detective',
-        isAlive: true,
-        suspicion: 0,
-      };
-    });
-
-    const evidence = generateCrimeScene(WEAPON_DB.Physical[0]); // 테스트 무기
-
-    setGameData(prev => ({
-      ...prev,
-      gamePhase: 'ROLE_REVEAL',
-      roles: newRoles,
-      evidenceList: evidence,
-      logs: [{ text: ">>> CASE OPENED", type: 'system' }],
+    const shuffled = [...players].sort(() => Math.random() - 0.5);
+    const killer = shuffled[0];
+    const newPlayers = players.map(p => ({
+      ...p,
+      role: p.id === killer.id ? 'Killer' : 'Detective',
+      isKiller: p.id === killer.id,
     }));
+
+    const realWeapon = WEAPON_DB.Physical[0]; // 테스트용
+    const evidence = generateCrimeScene(realWeapon);
+
+    setPlayers(newPlayers);
+    setEvidenceList(evidence);
+    setPhase('ROLE_REVEAL');
+    setTruthLogs([{ time: new Date().toLocaleTimeString(), text: 'Case Opened', type: 'system' }]);
   };
 
-  // ===================== 증거 섞기 로직 =====================
+  // 증거 섞기
   const generateCrimeScene = (realWeapon) => {
     const category = realWeapon.type || 'Physical';
     const categoryItems = WEAPON_DB[category] || [];
@@ -127,32 +102,58 @@ export default function MysteryMurder() {
     }));
   };
 
-  // ===================== Role Reveal 핸들러 =====================
+  // Trace Rate 증가 (살인자 화면용)
+  useEffect(() => {
+    if (phase === 'SETUP' && players.find(p => p.id === myId)?.isKiller) {
+      const interval = setInterval(() => {
+        setTraceRate(prev => Math.min(99.99, prev + Math.random() * 0.05));
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [phase]);
+
+  // 투표 타이머
+  useEffect(() => {
+    if (phase === 'VOTING') {
+      const timer = setInterval(() => {
+        setVoteTimeLeft(t => t > 0 ? t - 1 : 0);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [phase]);
+
+  // 엔딩 로그 재생
+  useEffect(() => {
+    if (phase === 'ENDED' && endStep < truthLogs.length) {
+      const t = setTimeout(() => setEndStep(s => s + 1), 2000);
+      return () => clearTimeout(t);
+    } else if (endStep >= truthLogs.length) {
+      setTimeout(() => setShowFinalMessage(true), 2500);
+    }
+  }, [phase, endStep, truthLogs]);
+
+  const myRole = players.find(p => p.id === myId)?.role || 'Detective';
+
+  // ===================== 핸들러 =====================
   const handleRoleConfirmed = () => setHasSeenRole(true);
 
-  // ===================== 무기 선택 핸들러 =====================
   const handleWeaponCommit = (weapon) => {
     setSelectedWeapon(weapon);
-    setGameData(prev => ({
-      ...prev,
-      gamePhase: 'INVESTIGATION',
-      crimeData: { weapon },
-      logs: [...prev.logs, { text: ">>> INVESTIGATION START", type: 'system_alert' }],
-    }));
+    setPhase('INVESTIGATION');
+    setTruthLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), text: 'Investigation Started', type: 'system' }]);
   };
 
-  // ===================== 스캔 핸들러 =====================
   const handleScan = (cardId) => {
-    const card = gameData.evidenceList.find(c => c.id === cardId);
+    const card = evidenceList.find(c => c.id === cardId);
     if (!card || !selectedTool || battery < selectedTool.cost) return;
 
-    setBattery(b => b - selectedTool.cost);
+    setBattery(b => Math.max(0, b - selectedTool.cost));
     if (navigator.vibrate) navigator.vibrate(50);
 
     let msg = "";
     let positive = false;
 
-    if (currentPlayer.role === 'Killer') {
+    if (myRole === 'Killer') {
       msg = "SCAN COMPLETE. RESULT: [ENCRYPTED]";
       positive = Math.random() > 0.5;
     } else {
@@ -165,42 +166,25 @@ export default function MysteryMurder() {
     setScanResult({ msg, positive });
     setTimeout(() => setScanResult(null), 4000);
 
-    // 공용 로그
-    setGameData(prev => ({
-      ...prev,
-      logs: [...prev.logs, {
-        text: `\( {user.displayName} scanned [ \){card.name}] with [${selectedTool.name}]`,
-        type: 'scan_action'
-      }]
-    }));
-
     setSelectedTool(null);
   };
 
-  // ===================== 투표 타이머 =====================
-  useEffect(() => {
-    if (gameData.gamePhase === 'VOTING') {
-      const timer = setInterval(() => {
-        setVoteTimeLeft(t => t > 0 ? t - 1 : 0);
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [gameData.gamePhase]);
-
-  // ===================== 엔딩 로그 재생 =====================
-  useEffect(() => {
-    if (gameData.gamePhase === 'ENDED' && endStep < gameData.truthLogs.length) {
-      const t = setTimeout(() => setEndStep(s => s + 1), 2000);
-      return () => clearTimeout(t);
-    } else if (endStep >= gameData.truthLogs.length) {
-      setTimeout(() => setShowFinalMessage(true), 2500);
-    }
-  }, [gameData.gamePhase, endStep]);
-
-  const currentPlayer = { role: 'Detective' }; // 테스트용
+  const handleVote = (targetId) => {
+    setSelectedSuspect(targetId);
+    // 여기서 실제 투표 로직 (모킹)
+    setTimeout(() => {
+      setPhase('ENDED');
+      setWinner('Killer'); // 테스트용
+      setTruthLogs([
+        { time: '00:01', text: '탐정 A가 세라믹 칼을 스캔 → POSITIVE', type: 'truth' },
+        { time: '00:05', text: '살인자가 "반응 없음"이라고 채팅', type: 'lie' },
+        { time: '00:10', text: '투표 결과: 무고한 시민 처형', type: 'verdict' },
+      ]);
+    }, 1000);
+  };
 
   // ===================== 렌더링 =====================
-  if (gameData.gamePhase === 'LOBBY') {
+  if (phase === 'LOBBY') {
     return (
       <div className="h-screen bg-slate-950 flex flex-col items-center justify-center text-white">
         <h1 className="text-6xl font-black text-red-600 mb-12">MURDER TOOL</h1>
@@ -211,8 +195,8 @@ export default function MysteryMurder() {
     );
   }
 
-  if (gameData.gamePhase === 'ROLE_REVEAL' && !hasSeenRole) {
-    const isKiller = currentPlayer.role === 'Killer';
+  if (phase === 'ROLE_REVEAL' && !hasSeenRole) {
+    const isKiller = myRole === 'Killer';
     return (
       <div className="h-screen bg-black flex items-center justify-center text-white">
         <div className="text-center">
@@ -228,15 +212,67 @@ export default function MysteryMurder() {
     );
   }
 
-  if (gameData.gamePhase === 'INVESTIGATION') {
+  if (phase === 'INVESTIGATION') {
     return (
-      <div className="h-screen bg-slate-900 text-white">
-        <GameBoard gameData={gameData} currentPlayer={currentPlayer} />
+      <div className="h-screen bg-slate-900 text-white p-4">
+        <h1 className="text-3xl font-black text-center mb-4">Crime Scene</h1>
+        {/* 실루엣 오프닝 생략, 바로 증거 */}
+        <div className="grid grid-cols-2 gap-4">
+          {evidenceList.map(card => (
+            <div key={card.id} onClick={() => handleScan(card.id)} className={`p-4 rounded border ${decryptedCards[card.id] ? 'bg-slate-700' : 'bg-black blur-sm'}`}>
+              {card.name}
+            </div>
+          ))}
+        </div>
+        {/* 도구 툴바 */}
+        <div className="fixed bottom-0 left-0 right-0 bg-black p-4 flex gap-2">
+          {TOOLS.map(tool => (
+            <button key={tool.id} onClick={() => setSelectedTool(tool)} className="bg-gray-800 p-2 rounded">
+              <tool.icon />
+            </button>
+          ))}
+        </div>
+        {scanResult && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-900 p-4 rounded">{scanResult.msg}</div>}
       </div>
     );
   }
 
-  // ... (VotingOverlay와 EndGameScreen도 비슷하게 내부에 포함 가능하나 길이 제한으로 생략)
+  if (phase === 'VOTING') {
+    return (
+      <div className="h-screen bg-black flex flex-col items-center justify-center text-white">
+        <h2 className="text-4xl font-black mb-8">JUDGMENT</h2>
+        <p className="text-xl mb-4">Time Left: {voteTimeLeft}s</p>
+        <div className="grid grid-cols-2 gap-4">
+          {players.map(p => (
+            <button key={p.id} onClick={() => handleVote(p.id)} className="bg-gray-800 p-6 rounded-xl text-2xl">
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  return <div>Game Phase: {gameData.gamePhase}</div>;
-}
+  if (phase === 'ENDED') {
+    return (
+      <div className="h-screen bg-black text-white flex flex-col items-center justify-center p-6">
+        <h1 className="text-5xl font-black mb-8">{winner === 'Killer' ? 'KILLER ESCAPED' : 'CASE CLOSED'}</h1>
+        <div className="space-y-4">
+          {truthLogs.slice(0, endStep).map((log, i) => (
+            <div key={i} className="text-lg">{log.text}</div>
+          ))}
+        </div>
+        {showFinalMessage && (
+          <p className="text-3xl font-black text-red-600 mt-12">
+            "YOUR DOUBT WAS THEIR SHARPEST WEAPON."
+          </p>
+        )}
+        <button onClick={() => setPhase('LOBBY')} className="mt-12 px-8 py-4 bg-gray-800 rounded-xl text-2xl">
+          PLAY AGAIN
+        </button>
+      </div>
+    );
+  }
+
+  return <div className="h-screen bg-black text-white flex items-center justify-center">Loading...</div>;
+      }
