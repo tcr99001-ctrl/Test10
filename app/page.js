@@ -1,66 +1,58 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, RefreshCw, Timer } from 'lucide-react';
+import { Trophy, RefreshCw, Timer, Zap } from 'lucide-react';
 
 // ==================================================================
-// 게임 설정 상수
+// 현대적 게임 설정 (Modern Config)
 // ==================================================================
-const MAP_SIZE = 40; // 타일 개수 (40x40)
-const TILE_SIZE = 20; // 화면 렌더링 시 스케일 조정용
-const GAME_DURATION = 60; // 60초
-const FPS = 60;
+const MAP_SIZE = 40;
+const GAME_DURATION = 60;
 
-// 색상 팔레트 (P1: Neon Green, P2: Pink, P3: Cyan, P4: Orange)
+// ✨ 네온 컬러 팔레트 (Glow 효과용)
 const COLORS = [
-  { id: 0, hex: '#39ff14', name: 'Green (YOU)' }, 
-  { id: 1, hex: '#ff00ff', name: 'Pink (AI)' },
-  { id: 2, hex: '#00ffff', name: 'Cyan (AI)' },
-  { id: 3, hex: '#ff9900', name: 'Orange (AI)' }
+  { id: 0, hex: '#00ffaa', glow: '#ccffee', name: 'NEON MINT (YOU)' }, 
+  { id: 1, hex: '#ff00aa', glow: '#ffccdd', name: 'HOT PINK' },
+  { id: 2, hex: '#00aaff', glow: '#cceeff', name: 'CYAN BLUE' },
+  { id: 3, hex: '#ffaa00', glow: '#ffeecc', name: 'VIVID ORANGE' }
 ];
 
-export default function Splatoon2D() {
+export default function SplatoonModern() {
   const canvasRef = useRef(null);
   const requestRef = useRef();
   
-  // 게임 상태
-  const [gameState, setGameState] = useState('lobby'); // lobby, playing, result
+  const [gameState, setGameState] = useState('lobby');
   const [scores, setScores] = useState([0, 0, 0, 0]);
   const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
   const [winner, setWinner] = useState(null);
 
-  // 엔진 상태 (Ref로 관리하여 렌더링 최적화)
   const engine = useRef({
-    grid: [], // 맵 데이터 (누가 칠했는지)
+    grid: [], 
     players: [],
     bullets: [],
-    particles: [],
     lastTime: 0,
-    joystick: { active: false, x: 0, y: 0, originX: 0, originY: 0 }, // 이동 조이스틱
-    shootBtn: { active: false } // 발사 버튼
+    joystick: { active: false, x: 0, y: 0, originX: 0, originY: 0 },
+    shootBtn: { active: false }
   });
 
-  // --- 초기화 ---
   const initGame = () => {
-    // 1. 맵 초기화 (0: 빈땅, 1~4: 플레이어 색)
     const grid = [];
     for(let y=0; y<MAP_SIZE; y++) {
       const row = [];
-      for(let x=0; x<MAP_SIZE; x++) row.push(-1); // -1: unpainted
+      for(let x=0; x<MAP_SIZE; x++) row.push(-1);
       grid.push(row);
     }
 
-    // 2. 플레이어 초기화
     const players = [
-      { id: 0, x: 5, y: 5, vx: 0, vy: 0, hp: 100, angle: 0, cooldown: 0, isAi: false },
-      { id: 1, x: 35, y: 35, vx: 0, vy: 0, hp: 100, angle: Math.PI, cooldown: 0, isAi: true, moveTimer: 0 },
-      { id: 2, x: 35, y: 5, vx: 0, vy: 0, hp: 100, angle: Math.PI/2, cooldown: 0, isAi: true, moveTimer: 0 },
-      { id: 3, x: 5, y: 35, vx: 0, vy: 0, hp: 100, angle: -Math.PI/2, cooldown: 0, isAi: true, moveTimer: 0 },
+      { id: 0, x: 5, y: 5, hp: 100, angle: 0, cooldown: 0, isAi: false },
+      { id: 1, x: 35, y: 35, hp: 100, angle: Math.PI, cooldown: 0, isAi: true, moveTimer: 0 },
+      { id: 2, x: 35, y: 5, hp: 100, angle: Math.PI/2, cooldown: 0, isAi: true, moveTimer: 0 },
+      { id: 3, x: 5, y: 35, hp: 100, angle: -Math.PI/2, cooldown: 0, isAi: true, moveTimer: 0 },
     ];
 
     engine.current = {
       ...engine.current,
-      grid, players, bullets: [], particles: [],
+      grid, players, bullets: [],
       lastTime: Date.now()
     };
 
@@ -69,7 +61,6 @@ export default function Splatoon2D() {
     setGameState('playing');
   };
 
-  // --- 게임 루프 ---
   const update = () => {
     if (gameState !== 'playing') return;
 
@@ -77,9 +68,9 @@ export default function Splatoon2D() {
     const dt = (now - engine.current.lastTime) / 1000;
     engine.current.lastTime = now;
 
-    const { players, bullets, grid, particles, joystick, shootBtn } = engine.current;
+    const { players, bullets, grid, joystick, shootBtn } = engine.current;
 
-    // 1. 플레이어 로직
+    // 플레이어 로직
     players.forEach(p => {
       if (p.respawnTime > 0) {
         p.respawnTime -= dt;
@@ -91,139 +82,157 @@ export default function Splatoon2D() {
         return;
       }
 
-      // 지형 속도 보정 (내 땅: 빠름, 적 땅: 느림)
+      // 속도 계산 (내 땅 버프)
       const tileX = Math.floor(p.x);
       const tileY = Math.floor(p.y);
       let speedMod = 1.0;
-      
       if (tileX >= 0 && tileX < MAP_SIZE && tileY >= 0 && tileY < MAP_SIZE) {
         const tileOwner = grid[tileY][tileX];
-        if (tileOwner === p.id) speedMod = 1.3; // 내 땅 버프
-        else if (tileOwner !== -1) speedMod = 0.6; // 적 땅 디버프
+        if (tileOwner === p.id) speedMod = 1.5; // 더 빠르게
+        else if (tileOwner !== -1) speedMod = 0.5; // 더 느리게
       }
+      const speed = 12 * speedMod * dt;
 
-      const speed = 10 * speedMod * dt;
-
-      // 이동 로직
       if (!p.isAi) {
-        // [플레이어] 조이스틱 입력
         if (joystick.active) {
           p.x += joystick.x * speed;
           p.y += joystick.y * speed;
           p.angle = Math.atan2(joystick.y, joystick.x);
         }
-        // 발사
         if (shootBtn.active && p.cooldown <= 0) {
           fireBullet(p);
-          p.cooldown = 0.15; // 연사 속도
+          p.cooldown = 0.12; 
         }
       } else {
-        // [AI] 간단한 봇 로직
+        // AI Logic
         p.moveTimer -= dt;
         if (p.moveTimer <= 0) {
           p.targetAngle = Math.random() * Math.PI * 2;
-          p.moveTimer = 1 + Math.random();
+          p.moveTimer = 0.5 + Math.random();
         }
-        // 벽 피하기 간단 처리
-        if (p.x < 2 || p.x > MAP_SIZE-2 || p.y < 2 || p.y > MAP_SIZE-2) {
-           p.targetAngle += Math.PI; 
-        }
+        if (p.x < 2 || p.x > MAP_SIZE-2 || p.y < 2 || p.y > MAP_SIZE-2) p.targetAngle += Math.PI;
         
         p.angle = p.angle + (p.targetAngle - p.angle) * 0.1;
         p.x += Math.cos(p.angle) * speed;
         p.y += Math.sin(p.angle) * speed;
 
-        // AI 자동 발사
         if (p.cooldown <= 0) {
           fireBullet(p);
           p.cooldown = 0.2 + Math.random() * 0.3;
         }
       }
       p.cooldown -= dt;
-
-      // 맵 밖으로 못 나가게
       p.x = Math.max(0, Math.min(MAP_SIZE, p.x));
       p.y = Math.max(0, Math.min(MAP_SIZE, p.y));
     });
 
-    // 2. 총알 로직
+    // 총알 로직
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
       b.x += Math.cos(b.angle) * b.speed * dt;
       b.y += Math.sin(b.angle) * b.speed * dt;
       b.life -= dt;
 
-      // 바닥 칠하기 (총알 지나가는 자리)
-      paintGround(grid, b.x, b.y, b.ownerId, 1);
+      // 잉크 칠하기 (원형으로 부드럽게)
+      paintGround(grid, b.x, b.y, b.ownerId, 1.5);
 
-      // 충돌 체크 (총알 vs 플레이어)
       let hit = false;
       players.forEach(p => {
         if (p.id !== b.ownerId && p.respawnTime <= 0) {
           const dx = p.x - b.x;
           const dy = p.y - b.y;
-          if (dx*dx + dy*dy < 1) { // Hit
-            p.hp -= 20;
+          if (dx*dx + dy*dy < 1.5) { 
+            p.hp -= 15;
             hit = true;
-            createParticles(p.x, p.y, COLORS[p.id].hex); // 피격 효과
-            if (p.hp <= 0) {
-              p.respawnTime = 3; // 3초 뒤 부활
-              createParticles(p.x, p.y, COLORS[p.id].hex, 20); // 사망 효과
-            }
+            if (p.hp <= 0) p.respawnTime = 3;
           }
         }
       });
 
       if (hit || b.life <= 0 || b.x < 0 || b.x > MAP_SIZE || b.y < 0 || b.y > MAP_SIZE) {
-        paintGround(grid, b.x, b.y, b.ownerId, 2); // 터질 때 더 크게 칠함
+        paintGround(grid, b.x, b.y, b.ownerId, 2.5); // 폭발 잉크
         bullets.splice(i, 1);
       }
     }
-
-    // 3. 점수 계산 (매 프레임은 무거우니 0.5초마다 하거나 그냥 프레임마다 대략 계산)
-    // 여기서는 최적화를 위해 생략하고 렌더링 때 계산된 값을 사용하거나 state로 가끔 올림
-
     requestRef.current = requestAnimationFrame(render);
   };
 
   const fireBullet = (p) => {
-    // 약간의 탄퍼짐
-    const spread = (Math.random() - 0.5) * 0.2;
     engine.current.bullets.push({
       x: p.x, y: p.y,
-      angle: p.angle + spread,
-      speed: 15,
-      life: 0.8, // 사거리
+      angle: p.angle + (Math.random() - 0.5) * 0.2,
+      speed: 18,
+      life: 0.7,
       ownerId: p.id
     });
   };
 
   const paintGround = (grid, cx, cy, colorId, radius) => {
     const startX = Math.floor(cx - radius);
-    const endX = Math.floor(cx + radius);
+    const endX = Math.ceil(cx + radius);
     const startY = Math.floor(cy - radius);
-    const endY = Math.floor(cy + radius);
+    const endY = Math.ceil(cy + radius);
 
     for(let y=startY; y<=endY; y++) {
       for(let x=startX; x<=endX; x++) {
         if (x>=0 && x<MAP_SIZE && y>=0 && y<MAP_SIZE) {
-           grid[y][x] = colorId;
+           // 원형 판정
+           const dx = x - cx;
+           const dy = y - cy;
+           if (dx*dx + dy*dy < radius*radius) {
+              grid[y][x] = colorId;
+           }
         }
       }
     }
   };
 
-  const createParticles = (x, y, color, count=5) => {
-    // 파티클 구현은 코드 길이상 시각적 효과만 간단히 (렌더링에서 처리)
+  // --- 🖌️ 현대적 렌더링 (핵심) ---
+  const drawSquid = (ctx, x, y, radius, angle, color) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle + Math.PI/2); // 캔버스 기준 보정
+    
+    // 그림자 (Glow)
+    ctx.shadowColor = color.hex;
+    ctx.shadowBlur = 15;
+
+    // 몸통 (오징어 모양)
+    ctx.fillStyle = color.hex;
+    ctx.beginPath();
+    ctx.moveTo(0, -radius * 1.5); // 머리 끝
+    ctx.bezierCurveTo(radius, -radius, radius, radius/2, radius*0.8, radius); // 우측 곡선
+    // 다리 (Tentacles)
+    ctx.lineTo(radius*0.5, radius*1.5);
+    ctx.lineTo(0, radius*0.8);
+    ctx.lineTo(-radius*0.5, radius*1.5);
+    ctx.lineTo(-radius*0.8, radius);
+    ctx.bezierCurveTo(-radius, radius/2, -radius, -radius, 0, -radius*1.5); // 좌측 곡선
+    ctx.fill();
+
+    // 눈 (흰자)
+    ctx.shadowBlur = 0; // 눈에는 광채 제거
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.ellipse(-radius*0.3, -radius*0.2, radius*0.25, radius*0.35, 0, 0, Math.PI*2);
+    ctx.ellipse(radius*0.3, -radius*0.2, radius*0.25, radius*0.35, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // 눈동자 (검은자)
+    ctx.fillStyle = 'black';
+    ctx.beginPath();
+    ctx.arc(-radius*0.3, -radius*0.2, radius*0.1, 0, Math.PI*2);
+    ctx.arc(radius*0.3, -radius*0.2, radius*0.1, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
   };
 
-  // --- 렌더링 ---
   const render = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     
-    // Canvas Size Sync
     const screenW = canvas.clientWidth;
     const screenH = canvas.clientHeight;
     if (canvas.width !== screenW || canvas.height !== screenH) {
@@ -233,88 +242,93 @@ export default function Splatoon2D() {
 
     const { grid, players, bullets } = engine.current;
     
-    // 카메라/스케일 계산 (맵을 화면 중앙에 맞춤)
-    const scale = Math.min(screenW / MAP_SIZE, screenH / MAP_SIZE) * 0.9;
+    // Zoom & Pan
+    const scale = Math.min(screenW / MAP_SIZE, screenH / MAP_SIZE) * 0.95;
     const offsetX = (screenW - MAP_SIZE * scale) / 2;
     const offsetY = (screenH - MAP_SIZE * scale) / 2;
 
-    ctx.clearRect(0, 0, screenW, screenH);
-
-    // 1. 땅 그리기
-    const currentScores = [0,0,0,0];
-    ctx.fillStyle = '#222';
+    // 1. 배경 (Dark Modern)
+    ctx.fillStyle = '#111827'; // Dark Slate
+    ctx.fillRect(0, 0, screenW, screenH);
+    
+    // 맵 바닥
+    ctx.fillStyle = '#1f2937';
     ctx.fillRect(offsetX, offsetY, MAP_SIZE*scale, MAP_SIZE*scale);
+    
+    // 그리드 라인 (은은하게)
+    ctx.strokeStyle = '#374151';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for(let i=0; i<=MAP_SIZE; i++) {
+        ctx.moveTo(offsetX + i*scale, offsetY);
+        ctx.lineTo(offsetX + i*scale, offsetY + MAP_SIZE*scale);
+        ctx.moveTo(offsetX, offsetY + i*scale);
+        ctx.lineTo(offsetX + MAP_SIZE*scale, offsetY + i*scale);
+    }
+    ctx.stroke();
 
+    // 2. 잉크 (Liquid Splat Effect)
+    // 픽셀 하나하나 그리는 대신, 잉크 덩어리처럼 보이게 그림
+    // (성능을 위해 픽셀 렌더링 유지하되, 약간 겹치게 그려서 부드럽게 처리)
+    const currentScores = [0,0,0,0];
+    
     for(let y=0; y<MAP_SIZE; y++) {
       for(let x=0; x<MAP_SIZE; x++) {
         const owner = grid[y][x];
         if (owner !== -1) {
           ctx.fillStyle = COLORS[owner].hex;
-          // 픽셀 아트 느낌으로 그리기
-          ctx.fillRect(offsetX + x*scale, offsetY + y*scale, scale+0.5, scale+0.5);
+          // 약간 겹치게 그려서 부드러운 잉크 느낌 (scale + 1)
+          ctx.fillRect(offsetX + x*scale - 0.5, offsetY + y*scale - 0.5, scale + 1, scale + 1);
           currentScores[owner]++;
         }
       }
     }
-    // 점수 업데이트 (비동기적으로 UI 반영)
     if (Math.random() < 0.05) setScores(currentScores);
 
-    // 2. 플레이어 그리기
-    players.forEach(p => {
-      if (p.respawnTime > 0) return; // 죽은 상태
-
-      const px = offsetX + p.x * scale;
-      const py = offsetY + p.y * scale;
-      const radius = 0.8 * scale;
-
-      // 몸체
-      ctx.beginPath();
-      ctx.arc(px, py, radius/2, 0, Math.PI*2);
-      ctx.fillStyle = COLORS[p.id].hex;
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // 방향 표시 (눈)
-      const eyeX = px + Math.cos(p.angle) * (radius/2);
-      const eyeY = py + Math.sin(p.angle) * (radius/2);
-      ctx.beginPath();
-      ctx.arc(eyeX, eyeY, radius/5, 0, Math.PI*2);
-      ctx.fillStyle = 'white';
-      ctx.fill();
-
-      // HP Bar
-      ctx.fillStyle = 'red';
-      ctx.fillRect(px - radius, py - radius - 5, radius*2, 4);
-      ctx.fillStyle = '#0f0';
-      ctx.fillRect(px - radius, py - radius - 5, radius*2 * (p.hp/100), 4);
-    });
-
-    // 3. 총알 그리기
+    // 3. 총알 (Glowing Projectiles)
     bullets.forEach(b => {
       const bx = offsetX + b.x * scale;
       const by = offsetY + b.y * scale;
+      
+      ctx.shadowColor = COLORS[b.ownerId].hex;
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = COLORS[b.ownerId].glow;
+      
       ctx.beginPath();
-      ctx.arc(bx, by, scale/3, 0, Math.PI*2);
-      ctx.fillStyle = COLORS[b.ownerId].hex;
+      ctx.arc(bx, by, scale/2.5, 0, Math.PI*2);
       ctx.fill();
+      ctx.shadowBlur = 0; // Reset
+    });
+
+    // 4. 캐릭터 (Vector Squid)
+    players.forEach(p => {
+      if (p.respawnTime > 0) return;
+      const px = offsetX + p.x * scale;
+      const py = offsetY + p.y * scale;
+      const radius = scale * 1.2; // 캐릭터 크기 키움
+
+      drawSquid(ctx, px, py, radius, p.angle, COLORS[p.id]);
+
+      // HP Bar (Modern)
+      const hpW = radius * 2.5;
+      const hpH = 6;
+      ctx.fillStyle = '#00000080';
+      ctx.fillRect(px - hpW/2, py - radius * 1.8, hpW, hpH);
+      ctx.fillStyle = p.id === 0 ? '#10b981' : '#f43f5e';
+      ctx.fillRect(px - hpW/2 + 1, py - radius * 1.8 + 1, (hpW-2) * (p.hp/100), hpH-2);
     });
 
     update();
   };
 
-  // --- 타이머 ---
   useEffect(() => {
     if (gameState === 'playing') {
       const timer = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
             setGameState('result');
-            // 승자 결정
             const maxScore = Math.max(...scores);
-            const winnerIdx = scores.indexOf(maxScore);
-            setWinner(winnerIdx);
+            setWinner(scores.indexOf(maxScore));
             return 0;
           }
           return prev - 1;
@@ -332,9 +346,9 @@ export default function Splatoon2D() {
   }, [gameState]);
 
 
-  // --- 터치 컨트롤러 로직 ---
+  // Touch Handling (동일)
   const handleTouchStart = (e, type) => {
-    e.preventDefault(); // 스크롤 방지
+    e.preventDefault();
     const touch = e.changedTouches[0];
     if (type === 'move') {
       engine.current.joystick.active = true;
@@ -353,11 +367,8 @@ export default function Splatoon2D() {
       const touch = e.changedTouches[0];
       const dx = touch.clientX - engine.current.joystick.originX;
       const dy = touch.clientY - engine.current.joystick.originY;
-      
-      // 정규화 (길이 1로 제한)
       const dist = Math.sqrt(dx*dx + dy*dy);
-      const maxDist = 50; // 조이스틱 반경
-      
+      const maxDist = 50;
       if (dist > maxDist) {
         engine.current.joystick.x = (dx / dist);
         engine.current.joystick.y = (dy / dist);
@@ -379,111 +390,96 @@ export default function Splatoon2D() {
     }
   };
 
-  // --- UI Renders ---
   return (
-    <div className="w-full h-screen bg-black overflow-hidden relative select-none touch-none">
-      
-      {/* 게임 화면 (Canvas) */}
-      <canvas 
-        ref={canvasRef} 
-        className="w-full h-full block"
-      />
+    <div className="w-full h-screen bg-[#111827] overflow-hidden relative select-none touch-none text-white font-sans">
+      <canvas ref={canvasRef} className="w-full h-full block" />
 
-      {/* UI 오버레이 */}
-      <div className="absolute top-0 left-0 w-full p-4 pointer-events-none">
-        {/* 점수판 */}
-        <div className="flex justify-between items-center mb-2">
-           <div className="flex gap-2 w-full h-6 rounded-full overflow-hidden bg-gray-800 border-2 border-gray-700">
+      {/* UI Overlay (Glassmorphism) */}
+      <div className="absolute top-0 left-0 w-full p-4 pointer-events-none z-10">
+        <div className="flex justify-between items-center mb-4 max-w-2xl mx-auto">
+           <div className="flex gap-1 w-full h-8 rounded-full overflow-hidden bg-black/40 backdrop-blur-md border border-white/10 shadow-lg">
              {scores.map((score, i) => (
                <div key={i} style={{
                  flex: score === 0 ? 0.01 : score, 
                  background: COLORS[i].hex,
-                 transition: 'flex 0.5s'
+                 boxShadow: `0 0 15px ${COLORS[i].hex}`,
+                 transition: 'flex 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
                }} />
              ))}
            </div>
         </div>
         <div className="flex justify-center">
-          <div className="bg-black/50 text-white px-4 py-1 rounded-full font-mono font-bold text-xl flex items-center gap-2">
-             <Timer size={20} className={timeLeft < 10 ? "text-red-500 animate-pulse" : "text-white"}/> {timeLeft}s
+          <div className="bg-black/60 backdrop-blur-md border border-white/10 px-6 py-2 rounded-full font-black text-2xl flex items-center gap-2 shadow-2xl">
+             <Timer size={24} className={timeLeft < 10 ? "text-rose-500 animate-bounce" : "text-emerald-400"}/> 
+             <span className="tracking-widest">{timeLeft}</span>
           </div>
         </div>
       </div>
 
-      {/* 모바일 컨트롤러 (게임 중일 때만) */}
       {gameState === 'playing' && (
         <>
-          {/* 왼쪽 이동 조이스틱 영역 */}
+          {/* Virtual Joystick (Modern) */}
           <div 
-            className="absolute bottom-10 left-10 w-40 h-40 bg-white/10 rounded-full border-2 border-white/30 backdrop-blur-sm flex items-center justify-center"
+            className="absolute bottom-12 left-12 w-48 h-48 rounded-full flex items-center justify-center border border-white/10 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-sm shadow-2xl"
             onTouchStart={e => handleTouchStart(e, 'move')}
             onTouchMove={e => handleTouchMove(e, 'move')}
             onTouchEnd={e => handleTouchEnd(e, 'move')}
           >
-            <div className="w-16 h-16 bg-white/50 rounded-full pointer-events-none" 
+            <div className="w-20 h-20 bg-emerald-400/80 rounded-full shadow-[0_0_20px_#34d399] transition-transform duration-75"
                  style={{ 
-                   transform: `translate(${engine.current.joystick.x * 50}px, ${engine.current.joystick.y * 50}px)` 
+                   transform: `translate(${engine.current.joystick.x * 60}px, ${engine.current.joystick.y * 60}px)` 
                  }} 
             />
           </div>
 
-          {/* 오른쪽 발사 버튼 */}
+          {/* Fire Button (Modern) */}
           <div 
-            className="absolute bottom-10 right-10 w-28 h-28 bg-red-500/50 rounded-full border-4 border-red-400 active:bg-red-500 active:scale-95 transition-transform flex items-center justify-center"
+            className="absolute bottom-12 right-12 w-32 h-32 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 shadow-[0_0_30px_#f43f5e] border-4 border-white/20 active:scale-95 transition-all flex items-center justify-center"
             onTouchStart={e => handleTouchStart(e, 'shoot')}
             onTouchEnd={e => handleTouchEnd(e, 'shoot')}
           >
-            <span className="text-white font-black text-lg pointer-events-none">SHOOT</span>
+            <Zap size={40} className="text-white drop-shadow-md" fill="white"/>
           </div>
         </>
       )}
 
-      {/* 로비 화면 */}
+      {/* Lobby */}
       {gameState === 'lobby' && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-6 z-10">
-          <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500 mb-2 italic">INK WARS</h1>
-          <p className="text-gray-400 mb-8">땅따먹기 슈팅 게임</p>
-          <div className="space-y-4 w-full max-w-sm">
-             <div className="bg-gray-800 p-4 rounded-xl text-white text-sm">
-               <p>🎮 <b>조작법:</b></p>
-               <ul className="list-disc pl-5 mt-2 space-y-1 text-gray-300">
-                 <li>왼쪽 패드: 이동</li>
-                 <li>오른쪽 버튼: 발사 (보는 방향)</li>
-                 <li>내 색깔 위에서는 빨라지고, 적 색깔에서는 느려집니다!</li>
-               </ul>
-             </div>
-             <button onClick={initGame} className="w-full bg-green-500 hover:bg-green-400 text-black font-black py-4 rounded-xl text-xl shadow-[0_4px_0_#14532d] active:translate-y-1 active:shadow-none transition-all">
-               게임 시작
-             </button>
-          </div>
+        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-8 z-50 backdrop-blur-sm">
+          <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-emerald-400 to-cyan-500 mb-4 tracking-tight drop-shadow-2xl italic">
+            NEON SPLAT
+          </h1>
+          <p className="text-gray-400 mb-10 text-lg font-medium">Capture the turf with neon ink!</p>
+          <button onClick={initGame} className="w-full max-w-sm bg-white text-black font-black py-5 rounded-2xl text-xl shadow-[0_0_40px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-all">
+            START BATTLE
+          </button>
         </div>
       )}
 
-      {/* 결과 화면 */}
+      {/* Result */}
       {gameState === 'result' && (
-        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-6 z-20 animate-in fade-in">
-          <Trophy size={64} className="text-yellow-400 mb-4 animate-bounce" />
-          <h2 className="text-4xl font-black text-white mb-6">TIME OVER!</h2>
+        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-8 z-50 animate-in fade-in zoom-in-95 backdrop-blur-md">
+          <Trophy size={80} className="text-yellow-400 mb-6 drop-shadow-[0_0_30px_#fbbf24] animate-bounce" />
+          <h2 className="text-5xl font-black text-white mb-8">FINISH!</h2>
           
-          <div className="w-full max-w-md bg-gray-800 rounded-2xl p-6 mb-8 border border-gray-700">
+          <div className="w-full max-w-md space-y-3 mb-10">
             {scores.map((score, i) => {
               const total = scores.reduce((a,b)=>a+b, 0);
               const percent = total > 0 ? Math.round((score/total)*100) : 0;
               return (
-                <div key={i} className={`flex items-center justify-between py-3 border-b border-gray-700 last:border-0 ${winner===i ? 'bg-white/10 -mx-6 px-6':''}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-4 h-4 rounded-full" style={{background: COLORS[i].hex}}></div>
-                    <span className={`font-bold ${i===0?'text-white':'text-gray-400'}`}>{COLORS[i].name}</span>
-                    {winner===i && <span className="text-yellow-400 text-xs font-black px-2 py-0.5 border border-yellow-400 rounded-full">WINNER</span>}
+                <div key={i} className={`flex items-center justify-between p-4 rounded-xl border border-white/5 ${winner===i ? 'bg-white/10 shadow-lg scale-105 border-white/20':''}`}>
+                  <div className="flex items-center gap-4">
+                    <div className="w-5 h-5 rounded-full shadow-lg" style={{background: COLORS[i].hex, boxShadow: `0 0 10px ${COLORS[i].hex}`}}></div>
+                    <span className={`font-bold text-lg ${i===0?'text-white':'text-gray-400'}`}>{COLORS[i].name}</span>
                   </div>
-                  <span className="font-mono font-bold text-white text-xl">{percent}%</span>
+                  <span className="font-mono font-bold text-2xl">{percent}%</span>
                 </div>
               )
             })}
           </div>
 
-          <button onClick={initGame} className="bg-white text-black px-8 py-3 rounded-full font-black text-lg flex items-center gap-2 hover:scale-105 transition-transform">
-            <RefreshCw size={20}/> 다시 하기
+          <button onClick={initGame} className="bg-white/10 border border-white/20 hover:bg-white/20 text-white px-10 py-4 rounded-full font-black text-lg flex items-center gap-3 transition-all">
+            <RefreshCw size={24}/> PLAY AGAIN
           </button>
         </div>
       )}
