@@ -1,20 +1,18 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { 
-  getFirestore, doc, setDoc, onSnapshot, collection, updateDoc, deleteDoc, getDoc 
+  getFirestore, doc, setDoc, onSnapshot, updateDoc, deleteDoc, getDoc 
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { 
-  Play, Eye, EyeOff, Users, CheckCircle2, Crown, 
-  Sword, Shield, ThumbsUp, ThumbsDown, AlertCircle, 
-  Link as LinkIcon, Sparkles, Scroll, Skull, Lock, Zap,
-  ChevronRight, XCircle
+  Crosshair, Wind, Zap, AlertCircle, Link as LinkIcon, CheckCircle2, 
+  Trophy, ArrowRight, Shield, Flame
 } from 'lucide-react';
 
 // ==================================================================
-// [필수] 사용자님의 Firebase 설정값
+// Firebase 설정 (기존 유지)
 // ==================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBPd5xk9UseJf79GTZogckQmKKwwogneco",
@@ -25,590 +23,481 @@ const firebaseConfig = {
   appId: "1:402376205992:web:be662592fa4d5f0efb849d"
 };
 
-// --- Firebase Init ---
-let firebaseApp;
-let db;
-let auth;
-
+let firebaseApp, db, auth;
 try {
-  if (!getApps().length) {
-    firebaseApp = initializeApp(firebaseConfig);
-  } else {
-    firebaseApp = getApps()[0];
-  }
+  if (!getApps().length) firebaseApp = initializeApp(firebaseConfig);
+  else firebaseApp = getApps()[0];
   db = getFirestore(firebaseApp);
   auth = getAuth(firebaseApp);
-} catch (e) { console.error("Firebase Init Error:", e); }
+} catch (e) {}
 
-// --- Game Logic Constants ---
-const QUEST_RULES = {
-  5: [2, 3, 2, 3, 3],
-  6: [2, 3, 4, 3, 4],
-  7: [2, 3, 3, 4, 4], 
-  8: [3, 4, 4, 5, 5],
-  9: [3, 4, 4, 5, 5],
-  10: [3, 4, 4, 5, 5],
-};
+// --- Game Constants ---
+const GRAVITY = 0.4;
+const MAP_WIDTH = 800;
+const MAP_HEIGHT = 500;
+const TANK_SIZE = 40;
+const MAX_HP = 100;
 
-// 역할 분배 함수 (개발자 모드 고려 X - 메인 함수에서 처리)
-function distributeRoles(count) {
-  let good = [], evil = [];
-  if (count === 5) { good=['멀린','시민','시민']; evil=['암살자','모르가나']; }
-  else if (count === 6) { good=['멀린','퍼시벌','시민','시민']; evil=['암살자','모르가나']; }
-  else if (count === 7) { good=['멀린','퍼시벌','시민','시민']; evil=['암살자','모르가나','오베론']; }
-  else {
-    good=['멀린','퍼시벌','시민','시민','시민']; evil=['암살자','모르가나','미니언'];
-    while(good.length+evil.length < count) (good.length+evil.length)%2===0 ? good.push('시민') : evil.push('미니언');
-  }
-  const roles = [...good, ...evil];
-  for(let i=roles.length-1; i>0; i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [roles[i], roles[j]] = [roles[j], roles[i]];
-  }
-  return roles;
-}
-
-const vibrate = () => {
-  if (typeof navigator !== 'undefined' && navigator.vibrate) {
-    navigator.vibrate(50);
-  }
-};
-
-// --- Main Component ---
-export default function AvalonGame() {
+export default function FortressGame() {
   const [user, setUser] = useState(null);
   const [roomCode, setRoomCode] = useState('');
   const [playerName, setPlayerName] = useState('');
   const [roomData, setRoomData] = useState(null);
-  const [players, setPlayers] = useState([]);
-  const [isCardFlipped, setIsCardFlipped] = useState(false);
-  const [error, setError] = useState(null);
+  const [players, setPlayers] = useState({}); // Object type for faster lookup
+  const [myState, setMyState] = useState({ angle: 45, power: 50 });
+  const [isFiring, setIsFiring] = useState(false);
   const [copyStatus, setCopyStatus] = useState(null);
-  const [isDevMode, setIsDevMode] = useState(false);
+  
+  const canvasRef = useRef(null);
+  const requestRef = useRef();
+  
+  // 포탄 상태 관리 (렌더링용)
+  const bulletRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0 });
+  const explosionRef = useRef({ active: false, x: 0, y: 0, radius: 0 });
 
-  const isJoined = user && players.some(p => p.id === user.uid);
   const isHost = roomData?.hostId === user?.uid;
+  const isMyTurn = roomData?.currentTurnId === user?.uid;
 
-  // Initial Setup
+  // --- Auth & Init ---
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search);
-      if(p.get('room')) setRoomCode(p.get('room').toUpperCase());
+      const code = p.get('room');
+      if (code) setRoomCode(code.toUpperCase());
     }
-  }, []);
-
-  useEffect(() => {
-    if(!auth) return;
     const unsub = onAuthStateChanged(auth, u => {
       if(u) setUser(u);
-      else signInAnonymously(auth).catch(console.error);
+      else signInAnonymously(auth);
     });
     return () => unsub();
   }, []);
 
+  // --- Data Sync ---
   useEffect(() => {
-    if(!user || !roomCode || roomCode.length!==4 || !db) return;
-    const unsubRoom = onSnapshot(doc(db,'rooms',roomCode), s => setRoomData(s.exists()?s.data():null));
-    const unsubPlayers = onSnapshot(collection(db,'rooms',roomCode,'players'), s => {
-      const list=[]; s.forEach(d=>list.push({id:d.id, ...d.data()}));
-      setPlayers(list);
+    if(!user || !roomCode || roomCode.length!==4) return;
+    
+    // Room Sync
+    const unsubRoom = onSnapshot(doc(db,'rooms',roomCode), s => {
+      if(s.exists()) {
+        const data = s.data();
+        
+        // 상대방이 쐈을 때 감지 (lastShot 타임스탬프 변경 시)
+        if (roomData && data.lastShot?.timestamp !== roomData.lastShot?.timestamp) {
+           triggerEnemyShot(data.lastShot);
+        }
+        setRoomData(data);
+      }
     });
+
+    // Players Sync (객체 형태로 변환하여 저장)
+    const unsubPlayers = onSnapshot(doc(db,'rooms',roomCode,'players','all'), s => {
+      if(s.exists()) setPlayers(s.data());
+    });
+
     return () => { unsubRoom(); unsubPlayers(); };
-  }, [user, roomCode]);
+  }, [user, roomCode, roomData]); // roomData dependency added for shot detection
 
-  // Presence & Cleanup
-  useEffect(() => {
-    if(!isJoined || !roomCode || !user) return;
-    const heartbeat = async () => { try { await updateDoc(doc(db,'rooms',roomCode,'players',user.uid), { lastActive: Date.now() }); } catch(e){} };
-    heartbeat();
-    const timer = setInterval(heartbeat, 5000);
-    return () => clearInterval(timer);
-  }, [isJoined, roomCode, user]);
+  // --- Canvas Rendering Loop ---
+  const renderGame = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !roomData) return;
+    const ctx = canvas.getContext('2d');
 
-  useEffect(() => {
-    if(!isHost || !players.length) return;
-    const cleaner = setInterval(() => {
-      const now = Date.now();
-      players.forEach(async p => {
-        if(p.lastActive && now - p.lastActive > 20000) { try { await deleteDoc(doc(db,'rooms',roomCode,'players',p.id)); } catch(e){} }
-      });
-    }, 10000);
-    return () => clearInterval(cleaner);
-  }, [isHost, players, roomCode]);
+    // 1. Clear
+    ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
-  // Actions
-  const handleCreate = async () => {
-    if(!playerName) return setError("이름을 입력하세요");
-    vibrate();
-    const code = Math.random().toString(36).substring(2,6).toUpperCase();
-    await setDoc(doc(db,'rooms',code), {
-      hostId: user.uid, status: 'lobby', phase: 'team_building',
-      questScores: [null,null,null,null,null], currentQuestIndex: 0,
-      leaderIndex: 0, votes: {}, questVotes: {}, currentTeam: [],
-      createdAt: Date.now()
+    // 2. Draw Sky & Ground
+    const gradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
+    gradient.addColorStop(0, "#87CEEB"); // Sky Blue
+    gradient.addColorStop(1, "#E0F7FA");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+    // Ground
+    ctx.fillStyle = "#5D4037"; // Brown
+    ctx.fillRect(0, MAP_HEIGHT - 60, MAP_WIDTH, 60);
+    ctx.fillStyle = "#388E3C"; // Grass
+    ctx.fillRect(0, MAP_HEIGHT - 60, MAP_WIDTH, 10);
+
+    // 3. Draw Players (Tanks)
+    Object.values(players).forEach(p => {
+      if (p.hp <= 0) return; // Dead
+
+      const x = p.x;
+      const y = MAP_HEIGHT - 60 - TANK_SIZE;
+      const isMe = p.id === user.uid;
+      
+      // Tank Body
+      ctx.fillStyle = isMe ? "#2563EB" : "#DC2626"; // Blue vs Red
+      ctx.fillRect(x, y, TANK_SIZE, TANK_SIZE);
+      
+      // HP Bar
+      ctx.fillStyle = "#000";
+      ctx.fillRect(x - 5, y - 15, TANK_SIZE + 10, 6);
+      ctx.fillStyle = p.hp > 30 ? "#22c55e" : "#ef4444";
+      ctx.fillRect(x - 4, y - 14, (TANK_SIZE + 8) * (p.hp / MAX_HP), 4);
+
+      // Barrel (Angle)
+      // 내 탱크면 내 로컬 state 각도 사용, 남의 탱크면 DB에 저장된 각도 사용(필요시)
+      // 여기서는 심플하게 발사 시점에만 포신 움직이는거 생략하고 고정 or 추후 구현
+      ctx.save();
+      ctx.translate(x + TANK_SIZE/2, y + TANK_SIZE/2);
+      // 내 탱크인 경우 내가 조절 중인 각도 표시
+      const angle = isMe ? myState.angle : (p.angle || 45);
+      const rad = (angle * Math.PI) / 180;
+      // 왼쪽 팀은 오른쪽 보고, 오른쪽 팀은 왼쪽 봄
+      const dir = x < MAP_WIDTH/2 ? 1 : -1; 
+      
+      ctx.rotate(dir === 1 ? -rad : rad);
+      ctx.fillStyle = "#333";
+      ctx.fillRect(0, -4, 30, 8); // 포신
+      ctx.restore();
+
+      // Name
+      ctx.fillStyle = "#1e293b";
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.name, x + TANK_SIZE/2, y + 20 + TANK_SIZE);
     });
-    await setDoc(doc(db,'rooms',code,'players',user.uid), { name: playerName, joinedAt: Date.now(), lastActive: Date.now() });
+
+    // 4. Draw Bullet
+    if (bulletRef.current.active) {
+      const b = bulletRef.current;
+      
+      // Physics Update
+      b.x += b.vx;
+      b.y += b.vy;
+      b.vy += GRAVITY;
+      b.vx += (roomData.wind || 0) * 0.005; // Wind effect
+
+      // Draw Bullet
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+
+      // Collision Check (Ground)
+      if (b.y >= MAP_HEIGHT - 60) {
+        handleExplosion(b.x, b.y);
+      }
+      
+      // Collision Check (Map Bounds)
+      if (b.x < -100 || b.x > MAP_WIDTH + 100) {
+        handleExplosion(b.x, b.y, false); // Miss
+      }
+    }
+
+    // 5. Draw Explosion
+    if (explosionRef.current.active) {
+      const e = explosionRef.current;
+      e.radius += 2;
+      
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 69, 0, ${1 - e.radius / 40})`; // Fade out
+      ctx.fill();
+
+      if (e.radius > 40) {
+        explosionRef.current.active = false;
+        if (isFiring && isMyTurn) { 
+           // 내 턴에 내가 쏜게 터졌으면 턴 종료 처리
+           finishMyTurn();
+        }
+      }
+    }
+
+    requestRef.current = requestAnimationFrame(renderGame);
+  };
+
+  useEffect(() => {
+    requestRef.current = requestAnimationFrame(renderGame);
+    return () => cancelAnimationFrame(requestRef.current);
+  }, [roomData, players, myState, isFiring]); // Rerun loop binding if needed
+
+  // --- Logic ---
+
+  const handleCreate = async () => {
+    if(!playerName) return alert("이름을 입력하세요");
+    const code = Math.random().toString(36).substring(2,6).toUpperCase();
+    
+    // Init Players
+    const initialPlayers = {
+      [user.uid]: {
+        id: user.uid, name: playerName, hp: MAX_HP, 
+        x: 100, angle: 45 // Host starts Left
+      }
+    };
+
+    await setDoc(doc(db,'rooms',code), {
+      hostId: user.uid, status: 'lobby', wind: 0,
+      currentTurnId: null,
+      lastShot: null
+    });
+    await setDoc(doc(db,'rooms',code,'players','all'), initialPlayers);
     setRoomCode(code);
   };
 
   const handleJoin = async () => {
-    if(!playerName || roomCode.length!==4) return setError("정보를 확인하세요");
-    vibrate();
-    const snap = await getDoc(doc(db,'rooms',roomCode));
-    if(!snap.exists()) return setError("방이 존재하지 않습니다");
-    await setDoc(doc(db,'rooms',roomCode,'players',user.uid), { name: playerName, joinedAt: Date.now(), lastActive: Date.now() });
+    if(!playerName) return alert("이름 입력");
+    const roomRef = doc(db,'rooms',roomCode);
+    const snap = await getDoc(roomRef);
+    if(!snap.exists()) return alert("방 없음");
+
+    const pRef = doc(db,'rooms',roomCode,'players','all');
+    const pSnap = await getDoc(pRef);
+    const currentPlayers = pSnap.data() || {};
+    
+    // Join as P2 (Right side)
+    const newPlayers = {
+      ...currentPlayers,
+      [user.uid]: {
+        id: user.uid, name: playerName, hp: MAX_HP,
+        x: MAP_WIDTH - 140, angle: 45 // Guest starts Right
+      }
+    };
+    await setDoc(pRef, newPlayers);
   };
 
-  // ★ [수정] 게임 시작 로직 (개발자 모드 버그 수정)
-  const handleStart = async () => {
-    vibrate();
-    const count = players.length;
-    let finalRoles = [];
-    let finalRules = [];
+  const startGame = async () => {
+    if (!isHost) return;
+    const pIds = Object.keys(players);
+    if (pIds.length < 2) return alert("2명이 필요합니다.");
 
-    if (isDevMode) {
-      // 개발자 모드: 인원수 무관, 역할 랜덤, 퀘스트 인원 1명 고정
-      const testRolesPool = ['멀린', '암살자', '퍼시벌', '모르가나', '시민', '미니언'];
-      // 현재 인원수만큼 랜덤 역할을 뽑습니다.
-      finalRoles = Array(count).fill(null).map(() => testRolesPool[Math.floor(Math.random() * testRolesPool.length)]);
-      finalRules = [1, 1, 1, 1, 1]; // 테스트용 룰 (1명만 필요)
-    } else {
-      if (count < 5) return setError("최소 5명이 필요합니다.");
-      finalRoles = distributeRoles(count);
-      finalRules = QUEST_RULES[count];
+    await updateDoc(doc(db, 'rooms', roomCode), {
+      status: 'playing',
+      currentTurnId: pIds[0], // Host first
+      wind: Math.floor(Math.random() * 10) - 5 // -5 ~ 5
+    });
+  };
+
+  // 발사 시작 (내 화면)
+  const fireBullet = async () => {
+    if (!isMyTurn || isFiring) return;
+    setIsFiring(true);
+
+    // 1. Calculate trajectory vectors
+    const isLeft = players[user.uid].x < MAP_WIDTH / 2;
+    const rad = (myState.angle * Math.PI) / 180;
+    const speed = myState.power * 0.4; // Scale down power
+    
+    const vx = isLeft ? Math.cos(rad) * speed : -Math.cos(rad) * speed;
+    const vy = -Math.sin(rad) * speed;
+
+    // 2. Start Local Animation
+    bulletRef.current = { 
+      active: true, 
+      x: players[user.uid].x + TANK_SIZE/2, 
+      y: MAP_HEIGHT - 60 - TANK_SIZE, 
+      vx, vy 
+    };
+
+    // 3. Sync to DB (So enemy can see)
+    await updateDoc(doc(db, 'rooms', roomCode), {
+      lastShot: {
+        shooterId: user.uid,
+        startX: bulletRef.current.x,
+        startY: bulletRef.current.y,
+        vx, vy,
+        timestamp: Date.now()
+      }
+    });
+  };
+
+  // 적이 쏜 것 처리
+  const triggerEnemyShot = (shotData) => {
+    if (shotData.shooterId === user.uid) return; // 내가 쏜건 이미 처리함
+    
+    // 적의 발사 애니메이션 재생
+    bulletRef.current = {
+      active: true,
+      x: shotData.startX,
+      y: shotData.startY,
+      vx: shotData.vx,
+      vy: shotData.vy
+    };
+  };
+
+  // 폭발 처리 (Hit Check는 쏘는 사람 클라이언트에서 계산해서 DB 업데이트 - 신뢰 모델)
+  const handleExplosion = async (ex, ey, checkHit = true) => {
+    bulletRef.current.active = false;
+    explosionRef.current = { active: true, x: ex, y: ey, radius: 0 };
+    
+    // 내가 쏜 경우에만 히트 판정 및 결과 전송 (권한 문제 해결 및 중복 방지)
+    if (isMyTurn && isFiring && checkHit) {
+      // Check Hit against Players
+      let hitDetected = false;
+      const newPlayers = { ...players };
+
+      Object.keys(newPlayers).forEach(pid => {
+        if (pid === user.uid) return; // 자폭 제외 (원하면 포함 가능)
+        
+        const p = newPlayers[pid];
+        const tankCenter = p.x + TANK_SIZE/2;
+        const dist = Math.abs(ex - tankCenter);
+        
+        if (dist < 40) { // Hit Range
+          hitDetected = true;
+          const damage = Math.floor(40 - dist); // 중심에 가까울수록 아픔
+          p.hp = Math.max(0, p.hp - damage);
+        }
+      });
+
+      if (hitDetected) {
+        await setDoc(doc(db,'rooms',roomCode,'players','all'), newPlayers);
+      }
     }
+  };
 
-    const updates = players.map((p,i) => {
-      const r = finalRoles[i];
-      const evil = ['암살자','모르가나','오베론','미니언','모드레드'].includes(r);
-      return updateDoc(doc(db,'rooms',roomCode,'players',p.id), { role:r, isEvil:evil });
-    });
-    await Promise.all(updates);
+  const finishMyTurn = async () => {
+    setIsFiring(false);
+    // Next Turn
+    const pIds = Object.keys(players);
+    const currIdx = pIds.indexOf(user.uid);
+    const nextIdx = (currIdx + 1) % pIds.length;
     
-    await updateDoc(doc(db,'rooms',roomCode), { 
-      status: 'playing', 
-      questRules: finalRules, 
-      leaderIndex: 0, 
-      isDevMode: isDevMode,
-      playerCount: count // 투표 집계 시 필요하므로 저장
+    await updateDoc(doc(db, 'rooms', roomCode), {
+      currentTurnId: pIds[nextIdx],
+      wind: Math.floor(Math.random() * 11) - 5 // Change Wind
     });
   };
 
-  const copyInviteLink = () => {
-    const inviteUrl = `${window.location.origin}?room=${roomCode}`;
-    const el = document.createElement('textarea');
-    el.value = inviteUrl;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
-    setCopyStatus('link');
-    setTimeout(() => setCopyStatus(null), 2000);
-    vibrate();
-  };
+  // --- UI Renders ---
 
-  const getMyData = () => {
-    if(!user || !players.length) return null;
-    const me = players.find(p=>p.id===user.uid);
-    if(!me?.role) return null;
-    let info = "";
-    const evils = players.filter(p=>p.isEvil && p.role!=='오베론' && p.role!=='모드레드').map(p=>p.name).join(', ');
-    const merlins = players.filter(p=>['멀린','모르가나'].includes(p.role)).map(p=>p.name).join(', ');
-    
-    if(me.role==='멀린') info=`악의 하수인: ${evils}`;
-    else if(me.role==='퍼시벌') info=`멀린 후보: ${merlins}`;
-    else if(me.isEvil && me.role!=='오베론') info=`동료 악당: ${evils}`;
-    else info="당신은 정의로운 아서 왕의 기사입니다.";
-    return { ...me, info };
-  };
-  const myData = getMyData();
-
-  // --- Render ---
-  if(!user) return (
-    <div className="flex h-screen flex-col items-center justify-center bg-slate-950 text-white font-sans gap-4">
-      <div className="w-12 h-12 border-4 border-slate-800 border-t-amber-500 rounded-full animate-spin"></div>
-      <p className="text-amber-500 font-bold tracking-widest text-xs uppercase animate-pulse">Connecting...</p>
-    </div>
-  );
+  if(!user) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white">Loading Fortress...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-amber-500/30 overflow-x-hidden relative">
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden flex flex-col">
       
-      {/* Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-[-20%] left-[-20%] w-[800px] h-[800px] bg-indigo-900/20 rounded-full blur-[120px] animate-pulse"></div>
-        <div className="absolute bottom-[-20%] right-[-20%] w-[800px] h-[800px] bg-amber-900/10 rounded-full blur-[120px] animate-pulse delay-1000"></div>
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10"></div>
-      </div>
-
-      <div className="relative mx-auto max-w-lg min-h-screen flex flex-col p-6 z-10">
-        
-        {/* Header */}
-        <header className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-amber-500 to-amber-700 rounded-lg shadow-lg shadow-amber-500/20">
-              <Sword size={24} className="text-white" />
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center h-[60px]">
+        <div className="flex items-center gap-2 text-yellow-400 font-black text-xl">
+          <Crosshair /> <span>FORTRESS WEB</span>
+        </div>
+        {isJoined && (
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 bg-slate-700 px-3 py-1 rounded-full">
+               <Wind size={16} className={roomData?.wind > 0 ? "text-blue-400" : "text-red-400"} />
+               <span className="font-mono font-bold">WIND: {roomData?.wind > 0 ? `>>> ${roomData.wind}` : `<<< ${Math.abs(roomData?.wind||0)}`}</span>
             </div>
-            <div>
-              <h1 className="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-amber-100 to-amber-500">AVALON</h1>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.3em]">The Resistance</p>
-            </div>
-          </div>
-          {isJoined && roomCode && (
-            <div className="flex flex-col items-end">
-              <span className="text-[9px] font-bold text-slate-500 uppercase">Room Code</span>
-              <span className="font-mono text-xl font-black text-amber-500 tracking-wider">{roomCode}</span>
-            </div>
-          )}
-        </header>
-
-        {/* Error Toast */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 animate-in slide-in-from-top-4 backdrop-blur-md">
-            <AlertCircle className="text-red-500 shrink-0" size={20} />
-            <p className="text-sm font-bold text-red-200">{error}</p>
-            <button onClick={()=>setError(null)} className="ml-auto text-red-400 hover:text-white">✕</button>
+            <button onClick={() => {navigator.clipboard.writeText(roomCode); setCopyStatus(true); setTimeout(()=>setCopyStatus(false),2000)}} className="bg-slate-700 px-3 py-1 rounded text-xs font-bold font-mono">
+              ROOM: {roomCode} {copyStatus ? "✓" : ""}
+            </button>
           </div>
         )}
+      </header>
 
-        {/* 1. Entrance */}
-        {!isJoined && (
-          <div className="my-auto animate-in fade-in zoom-in-95 duration-700">
-            <div className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-8 rounded-[2rem] shadow-2xl space-y-6">
-              <div className="text-center pb-4 border-b border-white/5">
-                <h2 className="text-2xl font-black text-white mb-2">원탁의 기사단</h2>
-                <p className="text-slate-400 text-sm">성스러운 임무를 수행할 준비가 되셨습니까?</p>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase ml-2">닉네임</label>
-                  <input 
-                    value={playerName} 
-                    onChange={e=>setPlayerName(e.target.value)} 
-                    placeholder="기사님의 이름" 
-                    className="w-full mt-1 bg-black/40 border border-white/10 focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 rounded-xl px-5 py-4 text-lg font-bold text-white placeholder-slate-600 outline-none transition-all"
-                  />
-                </div>
-
-                {!roomCode && (
-                  <button 
-                    onClick={handleCreate} 
-                    className="w-full bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white py-4 rounded-xl font-black text-lg shadow-lg shadow-amber-900/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                  >
-                    <Sparkles size={18} /> 새로운 원정대 결성
-                  </button>
-                )}
-
-                <div className="flex gap-3">
-                  <input 
-                    value={roomCode} 
-                    onChange={e=>setRoomCode(e.target.value.toUpperCase())} 
-                    placeholder="코드" 
-                    maxLength={4}
-                    className="flex-1 bg-black/40 border border-white/10 focus:border-indigo-500 rounded-xl text-center font-mono font-black text-xl uppercase outline-none transition-all"
-                  />
-                  <button 
-                    onClick={handleJoin} 
-                    className="flex-[1.5] bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-xl font-bold text-lg border border-white/5 transition-all active:scale-[0.98]"
-                  >
-                    입장하기
-                  </button>
-                </div>
-              </div>
-            </div>
+      {/* Main Game Area */}
+      <main className="flex-1 relative flex justify-center items-center bg-black">
+        {!isJoined ? (
+          // Lobby Form
+          <div className="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full space-y-4">
+             <h2 className="text-2xl font-black text-white text-center mb-4">입장 준비</h2>
+             <input value={playerName} onChange={e=>setPlayerName(e.target.value)} placeholder="닉네임" className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl font-bold text-white text-lg outline-none focus:border-yellow-400"/>
+             {!roomCode && <button onClick={handleCreate} className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-black py-4 rounded-xl text-lg transition-all">방 만들기</button>}
+             <div className="flex gap-2">
+               <input value={roomCode} onChange={e=>setRoomCode(e.target.value.toUpperCase())} placeholder="CODE" maxLength={4} className="flex-1 bg-slate-900 text-center font-mono font-bold text-xl rounded-xl border border-slate-600"/>
+               <button onClick={handleJoin} className="flex-1 bg-blue-600 hover:bg-blue-500 font-bold rounded-xl">참가</button>
+             </div>
           </div>
-        )}
-
-        {/* 2. Lobby */}
-        {isJoined && roomData?.status === 'lobby' && (
-          <div className="flex flex-col h-full animate-in fade-in slide-in-from-bottom-8 duration-500">
-            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 p-6 rounded-[2rem] border border-white/5 relative overflow-hidden mb-4 shadow-xl">
-              <div className="absolute top-0 right-0 p-4 opacity-10"><Users size={80} /></div>
-              <p className="text-indigo-300 text-xs font-bold uppercase tracking-widest mb-1">Waiting for Knights</p>
-              <h2 className="text-4xl font-black text-white">{players.length} <span className="text-xl text-slate-500">/ 10</span></h2>
-              {isDevMode && <div className="mt-2 inline-flex items-center gap-1 bg-red-500/20 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold border border-red-500/30"><Zap size={10}/> DEV MODE ON</div>}
+        ) : (
+          roomData?.status === 'lobby' ? (
+            // Lobby Waiting
+            <div className="text-center space-y-6">
+               <div className="text-6xl animate-bounce">🚀</div>
+               <h2 className="text-3xl font-black">대기실</h2>
+               <div className="flex justify-center gap-4">
+                 {Object.values(players).map(p => (
+                   <div key={p.id} className="bg-slate-800 p-4 rounded-xl border border-slate-600 min-w-[120px]">
+                     <div className={`w-3 h-3 rounded-full mb-2 mx-auto ${p.id===roomData.hostId?'bg-yellow-400':'bg-slate-500'}`}></div>
+                     {p.name}
+                   </div>
+                 ))}
+               </div>
+               {isHost && <button onClick={startGame} className="bg-green-600 hover:bg-green-500 px-8 py-3 rounded-xl font-black text-xl shadow-lg shadow-green-900/50">START GAME</button>}
             </div>
+          ) : (
+            // Canvas Game Board
+            <div className="relative shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+              <canvas 
+                ref={canvasRef} 
+                width={MAP_WIDTH} 
+                height={MAP_HEIGHT} 
+                className="bg-sky-200 rounded-xl cursor-crosshair touch-none"
+              />
+              
+              {/* Game Over Screen */}
+              {Object.values(players).some(p => p.hp <= 0) && (
+                 <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center rounded-xl z-20">
+                    <Trophy size={60} className="text-yellow-400 mb-4" />
+                    <h2 className="text-4xl font-black text-white mb-2">GAME OVER</h2>
+                    <p className="text-xl text-slate-300 font-bold mb-8">
+                      {Object.values(players).find(p=>p.hp > 0)?.name} 승리!
+                    </p>
+                    {isHost && <button onClick={startGame} className="bg-white text-black px-6 py-3 rounded-full font-black hover:scale-105 transition-transform">다시 하기</button>}
+                 </div>
+              )}
 
-            <div className="flex-1 flex flex-col min-h-0 bg-slate-900/40 border border-white/5 rounded-[2rem] p-4 backdrop-blur-sm">
-              <div className="flex justify-between items-center mb-4 px-2">
-                <span className="text-xs font-bold text-slate-500 uppercase">Participants</span>
-                <button onClick={copyInviteLink} className="text-xs font-bold text-amber-500 flex items-center gap-1 bg-amber-500/10 px-3 py-1.5 rounded-full hover:bg-amber-500/20 transition-colors">
-                  {copyStatus==='link' ? <CheckCircle2 size={12}/> : <LinkIcon size={12}/>} 초대 링크
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                {players.map(p => (
-                  <div key={p.id} className="flex items-center justify-between p-3 bg-white/5 border border-white/5 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2.5 h-2.5 rounded-full ${p.id===roomData.hostId ? 'bg-amber-500 shadow-[0_0_8px_orange]' : 'bg-emerald-500'}`}></div>
-                      <span className="font-bold text-slate-200">{p.name}</span>
-                    </div>
-                    {p.id===roomData.hostId && <Crown size={14} className="text-amber-500" />}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {isHost ? (
-                <>
-                  <button 
-                    onClick={handleStart}
-                    className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white py-5 rounded-2xl font-black text-xl shadow-xl shadow-emerald-900/20 flex items-center justify-center gap-3 transition-all active:scale-[0.98]"
-                  >
-                    <Play fill="currentColor" size={20}/> 게임 시작
-                  </button>
-                  <div 
-                    onClick={() => setIsDevMode(!isDevMode)}
-                    className="text-center text-[10px] text-slate-600 font-bold uppercase tracking-widest cursor-pointer hover:text-slate-400 transition-colors"
-                  >
-                    {isDevMode ? "Dev Mode Enabled" : "Min 5 Players Required"}
-                  </div>
-                </>
-              ) : (
-                <div className="p-4 bg-slate-800/50 rounded-xl border border-dashed border-slate-700 text-center">
-                  <p className="text-xs font-bold text-slate-500 animate-pulse">방장의 시작을 기다리고 있습니다...</p>
+              {/* Turn Indicator Overlay */}
+              {!isFiring && (
+                <div className="absolute top-10 w-full text-center pointer-events-none">
+                  <span className={`inline-block px-6 py-2 rounded-full text-lg font-black shadow-xl border-2 ${isMyTurn ? 'bg-yellow-500 border-yellow-300 text-black scale-110' : 'bg-slate-800 border-slate-600 text-slate-400'}`}>
+                    {isMyTurn ? "YOUR TURN!" : `${players[roomData.currentTurnId]?.name || 'Enemy'}'s Turn`}
+                  </span>
                 </div>
               )}
             </div>
-          </div>
-        )}
-
-        {/* 3. Game Play */}
-        {isJoined && roomData?.status === 'playing' && myData && (
-          <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-8 duration-700">
-            
-            {/* Score Track */}
-            <div className="bg-slate-900/50 border border-white/5 p-4 rounded-3xl backdrop-blur-md">
-              <div className="flex justify-between items-center relative">
-                <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-800 -z-10"></div>
-                {roomData.questScores.map((s,i) => (
-                  <div key={i} className={`relative flex flex-col items-center gap-1 transition-all duration-500 ${i===roomData.currentQuestIndex ? 'scale-110' : 'opacity-70'}`}>
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm border-2 shadow-lg transition-all z-10
-                      ${s===true ? 'bg-blue-600 border-blue-400 text-white' : 
-                        s===false ? 'bg-rose-600 border-rose-400 text-white' : 
-                        i===roomData.currentQuestIndex ? 'bg-slate-900 border-amber-500 text-amber-500 ring-2 ring-amber-500/20' : 
-                        'bg-slate-900 border-slate-700 text-slate-600'}`}>
-                      {s===true ? <Shield size={16}/> : s===false ? <Sword size={16}/> : i+1}
-                    </div>
-                    <span className="text-[9px] font-bold text-slate-500 bg-slate-950 px-1.5 rounded">{roomData.questRules[i]}인</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Identity Card (Flip Effect) */}
-            <div className="perspective-1000 h-[200px] w-full cursor-pointer group" onClick={() => { vibrate(); setIsCardFlipped(!isCardFlipped); }}>
-              <div className={`relative w-full h-full duration-500 preserve-3d transition-transform ${isCardFlipped ? 'rotate-y-180' : ''}`} style={{ transformStyle: 'preserve-3d', transform: isCardFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
-                {/* Front */}
-                <div className="absolute w-full h-full backface-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-[2rem] border border-slate-700 flex flex-col items-center justify-center shadow-2xl p-6 group-hover:border-slate-600 transition-colors">
-                  <div className="w-16 h-16 bg-slate-950 rounded-full flex items-center justify-center mb-4 border border-slate-800 shadow-inner">
-                    <Lock size={24} className="text-slate-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-300">신분 확인</h3>
-                  <p className="text-xs text-slate-500 mt-2 uppercase tracking-widest font-bold">Tap to Reveal Identity</p>
-                </div>
-                {/* Back */}
-                <div className={`absolute w-full h-full backface-hidden bg-gradient-to-br rounded-[2rem] border flex flex-col items-center justify-center shadow-2xl p-6 text-center ${myData.isEvil ? 'from-rose-950 to-slate-950 border-rose-500/30' : 'from-blue-950 to-slate-950 border-blue-500/30'}`} style={{ transform: 'rotateY(180deg)' }}>
-                  <div className={`text-xs font-bold uppercase tracking-[0.3em] mb-2 ${myData.isEvil ? 'text-rose-500' : 'text-blue-500'}`}>Your Role</div>
-                  <h2 className={`text-4xl font-black mb-4 drop-shadow-lg ${myData.isEvil ? 'text-rose-500' : 'text-blue-400'}`}>{myData.role}</h2>
-                  <div className={`text-xs font-medium px-4 py-2 rounded-lg border bg-black/20 ${myData.isEvil ? 'text-rose-200 border-rose-500/20' : 'text-blue-200 border-blue-500/20'}`}>{myData.info}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Leader Badge */}
-            <div className="flex items-center justify-center gap-2">
-              <div className="bg-amber-500/10 border border-amber-500/20 px-4 py-1.5 rounded-full flex items-center gap-2">
-                <Crown size={14} className="text-amber-500" />
-                <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Leader</span>
-                <span className="text-sm font-bold text-white">{players[roomData.leaderIndex]?.name}</span>
-              </div>
-            </div>
-
-            {/* Game Phases */}
-            <div className="bg-slate-900/60 border border-white/5 p-1 rounded-[2.5rem] backdrop-blur-xl shadow-2xl">
-              <div className="bg-slate-950/80 rounded-[2.3rem] p-6 border border-white/5 min-h-[220px] flex flex-col justify-center">
-                {roomData.phase === 'team_building' && (
-                  <TeamBuilding roomCode={roomCode} players={players} roomData={roomData} user={user} isLeader={players[roomData.leaderIndex]?.id===user.uid} vibrate={vibrate} />
-                )}
-                {roomData.phase === 'voting' && (
-                  <Voting roomCode={roomCode} roomData={roomData} user={user} vibrate={vibrate} />
-                )}
-                {roomData.phase === 'quest' && (
-                  <Quest roomCode={roomCode} roomData={roomData} user={user} myRole={myData.role} vibrate={vibrate} />
-                )}
-                {roomData.phase === 'assassin' && (
-                   <div className="text-center space-y-4 animate-in zoom-in">
-                     <div className="inline-block p-4 bg-rose-500/10 rounded-full mb-2 border border-rose-500/30"><Skull size={40} className="text-rose-500"/></div>
-                     <h2 className="text-2xl font-black text-rose-500 uppercase">Assassin Phase</h2>
-                     <p className="text-sm text-slate-400">악의 세력은 멀린을 찾아 암살하세요.</p>
-                   </div>
-                )}
-                {roomData.status === 'evil_win' && (
-                  <div className="text-center animate-in bounce-in">
-                    <h2 className="text-4xl font-black text-rose-600 mb-2 drop-shadow-[0_0_10px_rgba(225,29,72,0.5)]">EVIL WINS</h2>
-                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">The Kingdom has fallen</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// --- Sub Components ---
-
-function TeamBuilding({ roomCode, players, roomData, user, isLeader, vibrate }) {
-  const [selected, setSelected] = useState([]);
-  const need = roomData.questRules[roomData.currentQuestIndex];
-  
-  const toggle = (id) => {
-    if(!isLeader) return;
-    vibrate();
-    if(selected.includes(id)) setSelected(selected.filter(i=>i!==id));
-    else if(selected.length < need) setSelected([...selected, id]);
-  };
-  
-  const submit = async () => {
-    if(selected.length!==need) return;
-    vibrate();
-    await updateDoc(doc(db,'rooms',roomCode), { phase:'voting', currentTeam:selected, votes:{} });
-  };
-
-  return (
-    <div className="space-y-5 animate-in slide-in-from-right-8 duration-500">
-      <div className="text-center">
-        <h3 className="text-lg font-black text-white">원정대 선발</h3>
-        <p className="text-xs text-indigo-400 font-bold uppercase mt-1">Select {need} Knights</p>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {players.map(p => {
-          const isSel = selected.includes(p.id);
-          return (
-            <div key={p.id} onClick={()=>toggle(p.id)} className={`p-3 rounded-xl border flex items-center justify-between transition-all duration-200 ${isSel ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-500/20 scale-[1.02]' : 'bg-slate-800 border-slate-700 text-slate-400'} ${isLeader?'cursor-pointer active:scale-95':'opacity-50'}`}>
-              <span className="text-sm font-bold">{p.name}</span>
-              {isSel && <CheckCircle2 size={16}/>}
-            </div>
           )
-        })}
-      </div>
-      {isLeader ? (
-        <button onClick={submit} disabled={selected.length!==need} className="w-full bg-indigo-600 disabled:bg-slate-800 disabled:text-slate-600 text-white py-4 rounded-xl font-bold mt-2 shadow-lg transition-all active:scale-95">
-          원정대 제안 승인
-        </button>
-      ) : <p className="text-center text-xs text-slate-500 font-bold mt-4 animate-pulse">리더가 원정대를 선발 중입니다...</p>}
-    </div>
-  );
-}
-
-function Voting({ roomCode, roomData, user, vibrate }) {
-  const voted = roomData.votes?.[user.uid] !== undefined;
-  
-  const vote = async (appr) => {
-    vibrate();
-    const newVotes = { ...roomData.votes, [user.uid]: appr };
-    if(Object.keys(newVotes).length === roomData.playerCount) {
-      const y = Object.values(newVotes).filter(v=>v).length;
-      if(y > Object.values(newVotes).length/2) {
-        await updateDoc(doc(db,'rooms',roomCode), { votes:newVotes, phase:'quest', questVotes:{} });
-      } else {
-        await updateDoc(doc(db,'rooms',roomCode), { votes:newVotes, phase:'team_building', leaderIndex:(roomData.leaderIndex+1)%roomData.playerCount });
-      }
-    } else {
-      await updateDoc(doc(db,'rooms',roomCode), { [`votes.${user.uid}`]: appr });
-    }
-  };
-
-  if(voted) return (
-    <div className="text-center py-10 space-y-3">
-      <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto animate-pulse"><Scroll className="text-slate-600"/></div>
-      <p className="text-sm text-slate-500 font-bold">다른 기사들의 투표를 기다리는 중...</p>
-    </div>
-  );
-
-  return (
-    <div className="space-y-6 animate-in zoom-in duration-300">
-      <div className="text-center">
-        <h3 className="text-lg font-black text-white">원정 승인 투표</h3>
-        <p className="text-xs text-slate-500 font-bold uppercase mt-1">Accept or Reject Proposal</p>
-      </div>
-      
-      <div className="flex justify-center gap-2 mb-4">
-        {roomData.currentTeam.map(uid => (
-             <div key={uid} className="w-8 h-8 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center text-xs text-white font-bold shadow-md"><Users size={12}/></div>
-        ))}
-      </div>
-
-      <div className="flex gap-3">
-        <button onClick={()=>vote(true)} className="flex-1 bg-slate-800 hover:bg-emerald-900/30 border border-slate-700 hover:border-emerald-500/50 p-5 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
-          <ThumbsUp size={28} className="text-slate-500 group-hover:text-emerald-500 transition-colors"/>
-          <span className="text-sm font-bold text-slate-400 group-hover:text-emerald-400">승인</span>
-        </button>
-        <button onClick={()=>vote(false)} className="flex-1 bg-slate-800 hover:bg-rose-900/30 border border-slate-700 hover:border-rose-500/50 p-5 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
-          <ThumbsDown size={28} className="text-slate-500 group-hover:text-rose-500 transition-colors"/>
-          <span className="text-sm font-bold text-slate-400 group-hover:text-rose-400">거부</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function Quest({ roomCode, roomData, user, myRole, vibrate }) {
-  const isMember = roomData.currentTeam.includes(user.uid);
-  const acted = roomData.questVotes?.[user.uid] !== undefined;
-  
-  const action = async (success) => {
-    vibrate();
-    const newVotes = { ...roomData.questVotes, [user.uid]: success };
-    if(Object.keys(newVotes).length === roomData.currentTeam.length) {
-      const fails = Object.values(newVotes).filter(v=>!v).length;
-      const isFail = fails >= 1; 
-      const newScores = [...roomData.questScores];
-      newScores[roomData.currentQuestIndex] = !isFail;
-      const sTotal = newScores.filter(s=>s===true).length;
-      const fTotal = newScores.filter(s=>s===false).length;
-      let ph = 'team_building'; let st = 'playing';
-      if(sTotal>=3) { ph='assassin'; st='assassin_phase'; }
-      if(fTotal>=3) { ph='game_over'; st='evil_win'; }
-      await updateDoc(doc(db,'rooms',roomCode), {
-        questVotes: newVotes, questScores: newScores, currentQuestIndex: roomData.currentQuestIndex+1,
-        phase: ph, status: st, leaderIndex: (roomData.leaderIndex+1)%roomData.playerCount
-      });
-    } else {
-      await updateDoc(doc(db,'rooms',roomCode), { [`questVotes.${user.uid}`]: success });
-    }
-  };
-
-  if(!isMember) return <div className="text-center py-12 text-slate-500 font-bold text-sm opacity-60">⚔️ 원정대가 임무를 수행 중입니다...</div>;
-  if(acted) return <div className="text-center py-12 text-slate-500 font-bold text-sm">⏳ 결과를 기다리는 중...</div>;
-
-  const isEvil = ['암살자','모르가나','미니언','오베론','모드레드'].includes(myRole);
-  
-  return (
-    <div className="space-y-6 animate-in zoom-in duration-300">
-      <div className="text-center">
-        <h3 className="text-lg font-black text-white">임무 수행</h3>
-        <p className="text-xs text-slate-500 font-bold uppercase mt-1">Determine the Fate</p>
-      </div>
-      <div className="flex gap-4">
-        <button onClick={()=>action(true)} className="flex-1 bg-slate-800 hover:bg-blue-600 border border-slate-700 hover:border-blue-500 p-6 rounded-2xl flex flex-col items-center gap-3 transition-all active:scale-95 group">
-          <Shield size={32} className="text-blue-500 group-hover:text-white"/>
-          <span className="font-black text-blue-400 group-hover:text-white">성공</span>
-        </button>
-        {isEvil && (
-          <button onClick={()=>action(false)} className="flex-1 bg-slate-800 hover:bg-rose-600 border border-slate-700 hover:border-rose-500 p-6 rounded-2xl flex flex-col items-center gap-3 transition-all active:scale-95 group">
-            <Sword size={32} className="text-rose-500 group-hover:text-white"/>
-            <span className="font-black text-rose-400 group-hover:text-white">실패</span>
-          </button>
         )}
-      </div>
-      {!isEvil && <p className="text-center text-[10px] text-slate-600 font-bold mt-2">* 선의 세력은 '성공'만 선택 가능합니다.</p>}
+      </main>
+
+      {/* Controller (Bottom) */}
+      {roomData?.status === 'playing' && (
+        <div className="bg-slate-800 p-4 border-t border-slate-700 h-[140px] flex items-center justify-center gap-8">
+          
+          {/* Controls */}
+          <div className={`flex items-center gap-8 transition-opacity ${isMyTurn && !isFiring ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+            
+            {/* Angle Control */}
+            <div className="flex flex-col items-center gap-2">
+              <label className="text-xs font-bold text-slate-400 uppercase">Angle (각도)</label>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-xl w-12 text-right">{myState.angle}°</span>
+                <input 
+                  type="range" min="0" max="90" step="1"
+                  value={myState.angle}
+                  onChange={e => setMyState(p => ({...p, angle: Number(e.target.value)}))}
+                  className="w-32 h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                />
+              </div>
+            </div>
+
+            {/* Power Control */}
+            <div className="flex flex-col items-center gap-2">
+              <label className="text-xs font-bold text-slate-400 uppercase">Power (파워)</label>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-xl w-12 text-right text-red-400">{myState.power}</span>
+                <input 
+                  type="range" min="10" max="100" step="1"
+                  value={myState.power}
+                  onChange={e => setMyState(p => ({...p, power: Number(e.target.value)}))}
+                  className="w-32 h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-red-500"
+                />
+              </div>
+            </div>
+
+            {/* Fire Button */}
+            <button 
+              onClick={fireBullet}
+              className="w-20 h-20 rounded-full bg-red-600 hover:bg-red-500 border-4 border-red-800 shadow-[0_4px_0_rgb(153,27,27)] active:translate-y-1 active:shadow-none flex flex-col items-center justify-center gap-1 transition-all"
+            >
+              <Flame fill="white" size={24} className="text-white"/>
+              <span className="text-[10px] font-black text-white">FIRE</span>
+            </button>
+          </div>
+
+        </div>
+      )}
+
     </div>
   );
-                      }
+}
