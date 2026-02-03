@@ -3,15 +3,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { 
-  getFirestore, doc, setDoc, onSnapshot, updateDoc, getDoc 
+  getFirestore, doc, setDoc, onSnapshot, updateDoc, collection, query, orderBy 
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { 
-  Crosshair, Wind, Flame, Trophy, AlertCircle
+  Crosshair, Wind, Flame, Trophy, AlertCircle, Users, Zap
 } from 'lucide-react';
 
 // ==================================================================
-// [필수] Firebase 설정 (본인의 설정값으로 유지)
+// [필수] Firebase 설정
 // ==================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBPd5xk9UseJf79GTZogckQmKKwwogneco",
@@ -44,25 +44,32 @@ export default function FortressGame() {
   const [user, setUser] = useState(null);
   const [roomCode, setRoomCode] = useState('');
   const [playerName, setPlayerName] = useState('');
+  
+  // 게임 상태
   const [roomData, setRoomData] = useState(null);
-  const [players, setPlayers] = useState({}); 
+  const [players, setPlayers] = useState([]); // 배열로 변경 (안정성 확보)
+  
+  // 내 탱크 상태
   const [myState, setMyState] = useState({ angle: 45, power: 50 });
   const [isFiring, setIsFiring] = useState(false);
+  
+  // UI 상태
   const [copyStatus, setCopyStatus] = useState(null);
   const [initError, setInitError] = useState(null);
   
   const canvasRef = useRef(null);
   const requestRef = useRef();
   
-  // 애니메이션 상태 관리 (React 렌더링과 분리)
+  // 애니메이션 (Ref로 관리하여 리렌더링 방지)
   const bulletRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0 });
   const explosionRef = useRef({ active: false, x: 0, y: 0, radius: 0 });
 
-  const isHost = roomData?.hostId && user?.uid && roomData.hostId === user.uid;
-  const isJoined = user && players && players[user.uid];
+  // Helper Flags
+  const isJoined = user && players.some(p => p.id === user.uid);
+  const isHost = roomData?.hostId === user?.uid;
   const isMyTurn = roomData?.currentTurnId === user?.uid;
 
-  // --- 1. Auth & Init ---
+  // --- 1. Auth ---
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search);
@@ -77,15 +84,15 @@ export default function FortressGame() {
     return () => unsub();
   }, []);
 
-  // --- 2. Data Sync ---
+  // --- 2. Data Sync (핵심 수정됨) ---
   useEffect(() => {
     if(!user || !roomCode || roomCode.length !== 4 || !db) return;
     
-    // 방 정보 구독
+    // A. 방 정보 구독
     const unsubRoom = onSnapshot(doc(db,'rooms',roomCode), s => {
       if(s.exists()) {
         const data = s.data();
-        // 적이 발사했을 때 감지 (타임스탬프 비교)
+        // 적 발사 감지
         if (roomData && data.lastShot?.timestamp !== roomData.lastShot?.timestamp) {
            triggerEnemyShot(data.lastShot);
         }
@@ -93,81 +100,88 @@ export default function FortressGame() {
       } else {
         setRoomData(null);
       }
-    }, (err) => console.error("Room Sync Error:", err));
+    });
 
-    // 플레이어 목록 구독
-    const unsubPlayers = onSnapshot(doc(db,'rooms',roomCode,'players','all'), s => {
-      // 데이터가 없으면 빈 객체로 초기화하여 에러 방지
-      if(s.exists()) setPlayers(s.data() || {});
-      else setPlayers({});
-    }, (err) => console.error("Player Sync Error:", err));
+    // B. 플레이어 목록 구독 (Collection 방식)
+    // 기존의 단일 문서 방식에서 -> 컬렉션 내의 모든 문서(플레이어)를 가져오는 방식으로 변경
+    // 이렇게 하면 각자가 자기 문서를 쓰기 때문에 충돌이 안 남.
+    const q = query(collection(db, 'rooms', roomCode, 'players'), orderBy('joinedAt'));
+    const unsubPlayers = onSnapshot(q, snapshot => {
+      const list = [];
+      snapshot.forEach(doc => {
+        list.push(doc.data());
+      });
+      setPlayers(list);
+    });
 
     return () => { unsubRoom(); unsubPlayers(); };
-  }, [user, roomCode, roomData]); // roomData 의존성 유지 (shot detection)
+  }, [user, roomCode, roomData]); // roomData dependency for shot detection
 
   // --- 3. Canvas Rendering Loop ---
   const renderGame = () => {
     const canvas = canvasRef.current;
-    // 캔버스나 데이터가 없으면 그리지 않음 (에러 방지 핵심)
     if (!canvas || !roomData) return;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // A. Clear & Background
+    // Clear
     ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+    
+    // Sky & Ground
     const gradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
     gradient.addColorStop(0, "#87CEEB"); 
     gradient.addColorStop(1, "#E0F7FA");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
-    // Ground
     ctx.fillStyle = "#5D4037"; 
     ctx.fillRect(0, MAP_HEIGHT - 60, MAP_WIDTH, 60);
     ctx.fillStyle = "#388E3C"; 
     ctx.fillRect(0, MAP_HEIGHT - 60, MAP_WIDTH, 10);
 
-    // B. Draw Players (안전장치 추가)
-    if (players) {
-      Object.values(players).forEach(p => {
-        if (!p || p.hp <= 0) return; // 데이터 없거나 사망 시 패스
+    // Draw Players
+    players.forEach(p => {
+      if (p.hp <= 0) return; // 사망
 
-        const x = p.x;
-        const y = MAP_HEIGHT - 60 - TANK_SIZE;
-        // user가 로딩 전일 수 있으므로 user?.uid 사용
-        const isMe = user && p.id === user.uid;
-        
-        // Body
-        ctx.fillStyle = isMe ? "#2563EB" : "#DC2626"; 
-        ctx.fillRect(x, y, TANK_SIZE, TANK_SIZE);
-        
-        // HP Bar
-        ctx.fillStyle = "#000";
-        ctx.fillRect(x - 5, y - 15, TANK_SIZE + 10, 6);
-        ctx.fillStyle = p.hp > 30 ? "#22c55e" : "#ef4444";
-        ctx.fillRect(x - 4, y - 14, (TANK_SIZE + 8) * (p.hp / MAX_HP), 4);
+      const x = p.x;
+      const y = MAP_HEIGHT - 60 - TANK_SIZE;
+      const isMe = user && p.id === user.uid;
+      
+      // Tank Body
+      ctx.fillStyle = isMe ? "#2563EB" : "#DC2626"; // Blue(Me) vs Red(Enemy)
+      ctx.fillRect(x, y, TANK_SIZE, TANK_SIZE);
+      
+      // HP Bar
+      ctx.fillStyle = "#000";
+      ctx.fillRect(x - 5, y - 15, TANK_SIZE + 10, 6);
+      ctx.fillStyle = p.hp > 30 ? "#22c55e" : "#ef4444";
+      ctx.fillRect(x - 4, y - 14, (TANK_SIZE + 8) * (p.hp / MAX_HP), 4);
 
-        // Barrel (포신)
-        ctx.save();
-        ctx.translate(x + TANK_SIZE/2, y + TANK_SIZE/2);
-        const angle = isMe ? myState.angle : (p.angle || 45);
-        const rad = (angle * Math.PI) / 180;
-        const dir = x < MAP_WIDTH/2 ? 1 : -1; 
-        ctx.rotate(dir === 1 ? -rad : rad);
-        ctx.fillStyle = "#333";
-        ctx.fillRect(0, -4, 30, 8); 
-        ctx.restore();
+      // Barrel
+      ctx.save();
+      ctx.translate(x + TANK_SIZE/2, y + TANK_SIZE/2);
+      
+      // 내 각도는 state에서, 남의 각도는 DB에서(없으면 기본값)
+      const angle = isMe ? myState.angle : (p.angle || 45);
+      const rad = (angle * Math.PI) / 180;
+      
+      // 탱크 위치에 따라 포신 방향 결정 (왼쪽팀은 오른쪽 봄, 오른쪽팀은 왼쪽 봄)
+      const dir = x < MAP_WIDTH/2 ? 1 : -1; 
+      
+      ctx.rotate(dir === 1 ? -rad : rad);
+      ctx.fillStyle = "#333";
+      ctx.fillRect(0, -4, 30, 8); 
+      ctx.restore();
 
-        // Name
-        ctx.fillStyle = "#1e293b";
-        ctx.font = "bold 12px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(p.name, x + TANK_SIZE/2, y + 20 + TANK_SIZE);
-      });
-    }
+      // Name
+      ctx.fillStyle = "#1e293b";
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.name, x + TANK_SIZE/2, y + 20 + TANK_SIZE);
+    });
 
-    // C. Draw Bullet
+    // Draw Bullet
     if (bulletRef.current.active) {
       const b = bulletRef.current;
       b.x += b.vx;
@@ -180,13 +194,13 @@ export default function FortressGame() {
       ctx.fillStyle = "#000";
       ctx.fill();
 
-      // 땅 충돌
+      // Ground Collision
       if (b.y >= MAP_HEIGHT - 60) handleExplosion(b.x, b.y);
-      // 화면 밖 나감
+      // Out of bounds
       if (b.x < -100 || b.x > MAP_WIDTH + 100) handleExplosion(b.x, b.y, false); 
     }
 
-    // D. Draw Explosion
+    // Draw Explosion
     if (explosionRef.current.active) {
       const e = explosionRef.current;
       e.radius += 2;
@@ -197,7 +211,6 @@ export default function FortressGame() {
 
       if (e.radius > 40) {
         explosionRef.current.active = false;
-        // 내 턴이고 내가 쏘고 있었으면 턴 종료
         if (isFiring && isMyTurn) finishMyTurn();
       }
     }
@@ -208,76 +221,76 @@ export default function FortressGame() {
   useEffect(() => {
     requestRef.current = requestAnimationFrame(renderGame);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [roomData, players, myState, isFiring, user]); // 의존성 추가
+  }, [roomData, players, myState, isFiring, user]);
 
   // --- Logic Functions ---
 
   const handleCreate = async () => {
     if(!playerName) return alert("이름을 입력하세요");
-    if(!user) return alert("로그인 대기중...");
+    if(!user) return alert("로그인 중입니다...");
     
     const code = Math.random().toString(36).substring(2,6).toUpperCase();
     
-    const initialPlayers = {
-      [user.uid]: {
-        id: user.uid, name: playerName, hp: MAX_HP, 
-        x: 100, angle: 45 
-      }
-    };
-
     try {
+      // 1. 방 생성
       await setDoc(doc(db,'rooms',code), {
         hostId: user.uid, status: 'lobby', wind: 0,
         currentTurnId: null, lastShot: null
       });
-      await setDoc(doc(db,'rooms',code,'players','all'), initialPlayers);
+
+      // 2. 플레이어 추가 (개별 문서 생성)
+      await setDoc(doc(db,'rooms',code,'players',user.uid), {
+        id: user.uid, name: playerName, hp: MAX_HP, 
+        x: 100, angle: 45, joinedAt: Date.now()
+      });
+      
       setRoomCode(code);
     } catch(e) {
       console.error(e);
-      alert("방 생성 실패 (권한 문제일 수 있음)");
+      alert("방 생성 실패: 권한 설정을 확인하세요.");
     }
   };
 
   const handleJoin = async () => {
     if(!playerName) return alert("이름 입력");
-    if(!user) return alert("로그인 대기중...");
+    if(!user) return alert("로그인 중입니다...");
 
     const roomRef = doc(db,'rooms',roomCode);
     const snap = await getDoc(roomRef);
-    if(!snap.exists()) return alert("방 없음");
-
-    const pRef = doc(db,'rooms',roomCode,'players','all');
-    const pSnap = await getDoc(pRef);
-    const currentPlayers = pSnap.data() || {};
+    if(!snap.exists()) return alert("방이 없습니다.");
     
-    // 오른쪽 팀으로 참가
-    const newPlayers = {
-      ...currentPlayers,
-      [user.uid]: {
-        id: user.uid, name: playerName, hp: MAX_HP,
-        x: MAP_WIDTH - 140, angle: 45 
-      }
-    };
-    await setDoc(pRef, newPlayers);
+    // 게스트는 오른쪽 위치 (700)
+    // 랜덤 요소 약간 추가하여 겹침 방지
+    const randomX = 600 + Math.floor(Math.random() * 100);
+
+    // 플레이어 문서 추가
+    await setDoc(doc(db,'rooms',roomCode,'players',user.uid), {
+      id: user.uid, name: playerName, hp: MAX_HP,
+      x: randomX, angle: 45, joinedAt: Date.now()
+    });
   };
 
   const startGame = async () => {
     if (!isHost) return;
-    const pIds = Object.keys(players);
-    if (pIds.length < 2) return alert("2명이 필요합니다.");
+    if (players.length < 2) return alert("최소 2명이 필요합니다.");
 
+    // 첫 번째 플레이어부터 시작
     await updateDoc(doc(db, 'rooms', roomCode), {
       status: 'playing',
-      currentTurnId: pIds[0], 
+      currentTurnId: players[0].id, 
       wind: Math.floor(Math.random() * 10) - 5 
     });
   };
 
   const fireBullet = async () => {
-    if (!isMyTurn || isFiring || !user || !players[user.uid]) return;
+    if (!isMyTurn || isFiring || !user) return;
+    
+    const myPlayer = players.find(p => p.id === user.uid);
+    if (!myPlayer) return;
+
     setIsFiring(true);
 
-    const isLeft = players[user.uid].x < MAP_WIDTH / 2;
+    const isLeft = myPlayer.x < MAP_WIDTH / 2;
     const rad = (myState.angle * Math.PI) / 180;
     const speed = myState.power * 0.4;
     
@@ -286,11 +299,12 @@ export default function FortressGame() {
 
     bulletRef.current = { 
       active: true, 
-      x: players[user.uid].x + TANK_SIZE/2, 
+      x: myPlayer.x + TANK_SIZE/2, 
       y: MAP_HEIGHT - 60 - TANK_SIZE, 
       vx, vy 
     };
 
+    // 발사 정보 공유
     await updateDoc(doc(db, 'rooms', roomCode), {
       lastShot: {
         shooterId: user.uid,
@@ -318,49 +332,43 @@ export default function FortressGame() {
     bulletRef.current.active = false;
     explosionRef.current = { active: true, x: ex, y: ey, radius: 0 };
     
-    // 내가 쏜 경우에만 데미지 판정 (권한/중복 방지)
+    // 히트 판정은 '쏘는 사람'이 계산해서 DB 업데이트
     if (isMyTurn && isFiring && checkHit && user) {
-      let hitDetected = false;
-      const newPlayers = { ...players };
-
-      Object.keys(newPlayers).forEach(pid => {
-        if (pid === user.uid) return; // 자폭 제외
+      players.forEach(async (p) => {
+        if (p.id === user.uid) return; // 자폭 제외
         
-        const p = newPlayers[pid];
         const tankCenter = p.x + TANK_SIZE/2;
         const dist = Math.abs(ex - tankCenter);
         
         if (dist < 40) { 
-          hitDetected = true;
-          const damage = Math.floor(40 - dist); 
-          // 객체 불변성 유지하며 업데이트
-          newPlayers[pid] = { ...p, hp: Math.max(0, p.hp - damage) };
+          const damage = Math.floor(40 - dist);
+          const newHp = Math.max(0, p.hp - damage);
+          
+          // 해당 플레이어 문서만 업데이트
+          await updateDoc(doc(db, 'rooms', roomCode, 'players', p.id), { hp: newHp });
         }
       });
-
-      if (hitDetected) {
-        await setDoc(doc(db,'rooms',roomCode,'players','all'), newPlayers);
-      }
     }
   };
 
   const finishMyTurn = async () => {
     setIsFiring(false);
-    const pIds = Object.keys(players);
-    const currIdx = pIds.indexOf(user.uid);
-    const nextIdx = (currIdx + 1) % pIds.length;
     
+    // 다음 턴 찾기
+    const currIdx = players.findIndex(p => p.id === user.uid);
+    const nextIdx = (currIdx + 1) % players.length;
+    const nextPlayer = players[nextIdx];
+
     await updateDoc(doc(db, 'rooms', roomCode), {
-      currentTurnId: pIds[nextIdx],
+      currentTurnId: nextPlayer.id,
       wind: Math.floor(Math.random() * 11) - 5 
     });
   };
 
   // --- UI Renders ---
   
-  // 로딩 화면 (Auth 초기화 전)
   if (!user && !initError) {
-     return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">Connecting...</div>;
+     return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">Connecting to Game Server...</div>;
   }
 
   return (
@@ -384,7 +392,6 @@ export default function FortressGame() {
         )}
       </header>
       
-      {/* Init Error Alert */}
       {initError && (
         <div className="bg-red-500 text-white p-2 text-center text-sm font-bold">
            <AlertCircle className="inline w-4 h-4 mb-1 mr-1"/> {initError}
@@ -410,15 +417,29 @@ export default function FortressGame() {
             <div className="text-center space-y-6">
                <div className="text-6xl animate-bounce">🚀</div>
                <h2 className="text-3xl font-black">대기실</h2>
+               
+               {/* Player List */}
                <div className="flex justify-center gap-4 flex-wrap">
-                 {players && Object.values(players).map(p => (
-                   <div key={p.id} className="bg-slate-800 p-4 rounded-xl border border-slate-600 min-w-[120px]">
+                 {players.length === 0 && <span className="text-slate-500">플레이어 로딩 중...</span>}
+                 {players.map(p => (
+                   <div key={p.id} className="bg-slate-800 p-4 rounded-xl border border-slate-600 min-w-[120px] animate-in zoom-in">
                      <div className={`w-3 h-3 rounded-full mb-2 mx-auto ${p.id===roomData.hostId?'bg-yellow-400':'bg-slate-500'}`}></div>
-                     {p.name}
+                     <div className="flex flex-col items-center">
+                        <Users size={24} className="text-slate-400 mb-2"/>
+                        <span className="font-bold">{p.name}</span>
+                        {p.id === user.uid && <span className="text-[10px] text-green-400">ME</span>}
+                     </div>
                    </div>
                  ))}
                </div>
-               {isHost && <button onClick={startGame} className="bg-green-600 hover:bg-green-500 px-8 py-3 rounded-xl font-black text-xl shadow-lg shadow-green-900/50">START GAME</button>}
+               
+               {isHost ? (
+                  <button onClick={startGame} className="bg-green-600 hover:bg-green-500 px-8 py-3 rounded-xl font-black text-xl shadow-lg shadow-green-900/50 flex items-center gap-2 mx-auto">
+                    <Zap size={24} fill="currentColor"/> START GAME
+                  </button>
+               ) : (
+                  <div className="text-slate-500 font-bold animate-pulse">방장의 시작을 기다리는 중...</div>
+               )}
             </div>
           ) : (
             // Canvas Game Board
@@ -431,12 +452,12 @@ export default function FortressGame() {
               />
               
               {/* Game Over Screen */}
-              {players && Object.values(players).some(p => p.hp <= 0) && (
+              {players.some(p => p.hp <= 0) && (
                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center rounded-xl z-20">
                     <Trophy size={60} className="text-yellow-400 mb-4" />
                     <h2 className="text-4xl font-black text-white mb-2">GAME OVER</h2>
                     <p className="text-xl text-slate-300 font-bold mb-8">
-                      {Object.values(players).find(p=>p.hp > 0)?.name} 승리!
+                      {players.find(p=>p.hp > 0)?.name} 승리!
                     </p>
                     {isHost && <button onClick={startGame} className="bg-white text-black px-6 py-3 rounded-full font-black hover:scale-105 transition-transform">다시 하기</button>}
                  </div>
@@ -446,7 +467,7 @@ export default function FortressGame() {
               {!isFiring && (
                 <div className="absolute top-10 w-full text-center pointer-events-none">
                   <span className={`inline-block px-6 py-2 rounded-full text-lg font-black shadow-xl border-2 ${isMyTurn ? 'bg-yellow-500 border-yellow-300 text-black scale-110' : 'bg-slate-800 border-slate-600 text-slate-400'}`}>
-                    {isMyTurn ? "YOUR TURN!" : `${players?.[roomData.currentTurnId]?.name || 'Enemy'}'s Turn`}
+                    {isMyTurn ? "YOUR TURN!" : `${players.find(p=>p.id===roomData?.currentTurnId)?.name || 'Enemy'}'s Turn`}
                   </span>
                 </div>
               )}
