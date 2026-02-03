@@ -3,16 +3,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { 
-  getFirestore, doc, setDoc, onSnapshot, updateDoc, deleteDoc, getDoc 
+  getFirestore, doc, setDoc, onSnapshot, updateDoc, getDoc 
 } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { 
-  Crosshair, Wind, Zap, AlertCircle, Link as LinkIcon, CheckCircle2, 
-  Trophy, ArrowRight, Shield, Flame
+  Crosshair, Wind, Flame, Trophy, AlertCircle
 } from 'lucide-react';
 
 // ==================================================================
-// Firebase 설정 (기존 유지)
+// [필수] Firebase 설정 (본인의 설정값으로 유지)
 // ==================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBPd5xk9UseJf79GTZogckQmKKwwogneco",
@@ -23,13 +22,16 @@ const firebaseConfig = {
   appId: "1:402376205992:web:be662592fa4d5f0efb849d"
 };
 
+// --- Firebase Init ---
 let firebaseApp, db, auth;
 try {
   if (!getApps().length) firebaseApp = initializeApp(firebaseConfig);
   else firebaseApp = getApps()[0];
   db = getFirestore(firebaseApp);
   auth = getAuth(firebaseApp);
-} catch (e) {}
+} catch (e) {
+  console.error("Firebase Init Error:", e);
+}
 
 // --- Game Constants ---
 const GRAVITY = 0.4;
@@ -43,166 +45,160 @@ export default function FortressGame() {
   const [roomCode, setRoomCode] = useState('');
   const [playerName, setPlayerName] = useState('');
   const [roomData, setRoomData] = useState(null);
-  const [players, setPlayers] = useState({}); // Object type for faster lookup
+  const [players, setPlayers] = useState({}); 
   const [myState, setMyState] = useState({ angle: 45, power: 50 });
   const [isFiring, setIsFiring] = useState(false);
   const [copyStatus, setCopyStatus] = useState(null);
+  const [initError, setInitError] = useState(null);
   
   const canvasRef = useRef(null);
   const requestRef = useRef();
   
-  // 포탄 상태 관리 (렌더링용)
+  // 애니메이션 상태 관리 (React 렌더링과 분리)
   const bulletRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0 });
   const explosionRef = useRef({ active: false, x: 0, y: 0, radius: 0 });
 
-  const isHost = roomData?.hostId === user?.uid;
+  const isHost = roomData?.hostId && user?.uid && roomData.hostId === user.uid;
+  const isJoined = user && players && players[user.uid];
   const isMyTurn = roomData?.currentTurnId === user?.uid;
 
-  // --- Auth & Init ---
+  // --- 1. Auth & Init ---
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search);
       const code = p.get('room');
       if (code) setRoomCode(code.toUpperCase());
     }
+    if (!auth) return;
     const unsub = onAuthStateChanged(auth, u => {
       if(u) setUser(u);
-      else signInAnonymously(auth);
+      else signInAnonymously(auth).catch(e => setInitError(e.message));
     });
     return () => unsub();
   }, []);
 
-  // --- Data Sync ---
+  // --- 2. Data Sync ---
   useEffect(() => {
-    if(!user || !roomCode || roomCode.length!==4) return;
+    if(!user || !roomCode || roomCode.length !== 4 || !db) return;
     
-    // Room Sync
+    // 방 정보 구독
     const unsubRoom = onSnapshot(doc(db,'rooms',roomCode), s => {
       if(s.exists()) {
         const data = s.data();
-        
-        // 상대방이 쐈을 때 감지 (lastShot 타임스탬프 변경 시)
+        // 적이 발사했을 때 감지 (타임스탬프 비교)
         if (roomData && data.lastShot?.timestamp !== roomData.lastShot?.timestamp) {
            triggerEnemyShot(data.lastShot);
         }
         setRoomData(data);
+      } else {
+        setRoomData(null);
       }
-    });
+    }, (err) => console.error("Room Sync Error:", err));
 
-    // Players Sync (객체 형태로 변환하여 저장)
+    // 플레이어 목록 구독
     const unsubPlayers = onSnapshot(doc(db,'rooms',roomCode,'players','all'), s => {
-      if(s.exists()) setPlayers(s.data());
-    });
+      // 데이터가 없으면 빈 객체로 초기화하여 에러 방지
+      if(s.exists()) setPlayers(s.data() || {});
+      else setPlayers({});
+    }, (err) => console.error("Player Sync Error:", err));
 
     return () => { unsubRoom(); unsubPlayers(); };
-  }, [user, roomCode, roomData]); // roomData dependency added for shot detection
+  }, [user, roomCode, roomData]); // roomData 의존성 유지 (shot detection)
 
-  // --- Canvas Rendering Loop ---
+  // --- 3. Canvas Rendering Loop ---
   const renderGame = () => {
     const canvas = canvasRef.current;
+    // 캔버스나 데이터가 없으면 그리지 않음 (에러 방지 핵심)
     if (!canvas || !roomData) return;
+    
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    // 1. Clear
+    // A. Clear & Background
     ctx.clearRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
-
-    // 2. Draw Sky & Ground
     const gradient = ctx.createLinearGradient(0, 0, 0, MAP_HEIGHT);
-    gradient.addColorStop(0, "#87CEEB"); // Sky Blue
+    gradient.addColorStop(0, "#87CEEB"); 
     gradient.addColorStop(1, "#E0F7FA");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
     // Ground
-    ctx.fillStyle = "#5D4037"; // Brown
+    ctx.fillStyle = "#5D4037"; 
     ctx.fillRect(0, MAP_HEIGHT - 60, MAP_WIDTH, 60);
-    ctx.fillStyle = "#388E3C"; // Grass
+    ctx.fillStyle = "#388E3C"; 
     ctx.fillRect(0, MAP_HEIGHT - 60, MAP_WIDTH, 10);
 
-    // 3. Draw Players (Tanks)
-    Object.values(players).forEach(p => {
-      if (p.hp <= 0) return; // Dead
+    // B. Draw Players (안전장치 추가)
+    if (players) {
+      Object.values(players).forEach(p => {
+        if (!p || p.hp <= 0) return; // 데이터 없거나 사망 시 패스
 
-      const x = p.x;
-      const y = MAP_HEIGHT - 60 - TANK_SIZE;
-      const isMe = p.id === user.uid;
-      
-      // Tank Body
-      ctx.fillStyle = isMe ? "#2563EB" : "#DC2626"; // Blue vs Red
-      ctx.fillRect(x, y, TANK_SIZE, TANK_SIZE);
-      
-      // HP Bar
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x - 5, y - 15, TANK_SIZE + 10, 6);
-      ctx.fillStyle = p.hp > 30 ? "#22c55e" : "#ef4444";
-      ctx.fillRect(x - 4, y - 14, (TANK_SIZE + 8) * (p.hp / MAX_HP), 4);
+        const x = p.x;
+        const y = MAP_HEIGHT - 60 - TANK_SIZE;
+        // user가 로딩 전일 수 있으므로 user?.uid 사용
+        const isMe = user && p.id === user.uid;
+        
+        // Body
+        ctx.fillStyle = isMe ? "#2563EB" : "#DC2626"; 
+        ctx.fillRect(x, y, TANK_SIZE, TANK_SIZE);
+        
+        // HP Bar
+        ctx.fillStyle = "#000";
+        ctx.fillRect(x - 5, y - 15, TANK_SIZE + 10, 6);
+        ctx.fillStyle = p.hp > 30 ? "#22c55e" : "#ef4444";
+        ctx.fillRect(x - 4, y - 14, (TANK_SIZE + 8) * (p.hp / MAX_HP), 4);
 
-      // Barrel (Angle)
-      // 내 탱크면 내 로컬 state 각도 사용, 남의 탱크면 DB에 저장된 각도 사용(필요시)
-      // 여기서는 심플하게 발사 시점에만 포신 움직이는거 생략하고 고정 or 추후 구현
-      ctx.save();
-      ctx.translate(x + TANK_SIZE/2, y + TANK_SIZE/2);
-      // 내 탱크인 경우 내가 조절 중인 각도 표시
-      const angle = isMe ? myState.angle : (p.angle || 45);
-      const rad = (angle * Math.PI) / 180;
-      // 왼쪽 팀은 오른쪽 보고, 오른쪽 팀은 왼쪽 봄
-      const dir = x < MAP_WIDTH/2 ? 1 : -1; 
-      
-      ctx.rotate(dir === 1 ? -rad : rad);
-      ctx.fillStyle = "#333";
-      ctx.fillRect(0, -4, 30, 8); // 포신
-      ctx.restore();
+        // Barrel (포신)
+        ctx.save();
+        ctx.translate(x + TANK_SIZE/2, y + TANK_SIZE/2);
+        const angle = isMe ? myState.angle : (p.angle || 45);
+        const rad = (angle * Math.PI) / 180;
+        const dir = x < MAP_WIDTH/2 ? 1 : -1; 
+        ctx.rotate(dir === 1 ? -rad : rad);
+        ctx.fillStyle = "#333";
+        ctx.fillRect(0, -4, 30, 8); 
+        ctx.restore();
 
-      // Name
-      ctx.fillStyle = "#1e293b";
-      ctx.font = "bold 12px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(p.name, x + TANK_SIZE/2, y + 20 + TANK_SIZE);
-    });
+        // Name
+        ctx.fillStyle = "#1e293b";
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(p.name, x + TANK_SIZE/2, y + 20 + TANK_SIZE);
+      });
+    }
 
-    // 4. Draw Bullet
+    // C. Draw Bullet
     if (bulletRef.current.active) {
       const b = bulletRef.current;
-      
-      // Physics Update
       b.x += b.vx;
       b.y += b.vy;
       b.vy += GRAVITY;
-      b.vx += (roomData.wind || 0) * 0.005; // Wind effect
+      b.vx += (roomData.wind || 0) * 0.005; 
 
-      // Draw Bullet
       ctx.beginPath();
       ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = "#000";
       ctx.fill();
 
-      // Collision Check (Ground)
-      if (b.y >= MAP_HEIGHT - 60) {
-        handleExplosion(b.x, b.y);
-      }
-      
-      // Collision Check (Map Bounds)
-      if (b.x < -100 || b.x > MAP_WIDTH + 100) {
-        handleExplosion(b.x, b.y, false); // Miss
-      }
+      // 땅 충돌
+      if (b.y >= MAP_HEIGHT - 60) handleExplosion(b.x, b.y);
+      // 화면 밖 나감
+      if (b.x < -100 || b.x > MAP_WIDTH + 100) handleExplosion(b.x, b.y, false); 
     }
 
-    // 5. Draw Explosion
+    // D. Draw Explosion
     if (explosionRef.current.active) {
       const e = explosionRef.current;
       e.radius += 2;
-      
       ctx.beginPath();
       ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 69, 0, ${1 - e.radius / 40})`; // Fade out
+      ctx.fillStyle = `rgba(255, 69, 0, ${1 - e.radius / 40})`; 
       ctx.fill();
 
       if (e.radius > 40) {
         explosionRef.current.active = false;
-        if (isFiring && isMyTurn) { 
-           // 내 턴에 내가 쏜게 터졌으면 턴 종료 처리
-           finishMyTurn();
-        }
+        // 내 턴이고 내가 쏘고 있었으면 턴 종료
+        if (isFiring && isMyTurn) finishMyTurn();
       }
     }
 
@@ -212,33 +208,40 @@ export default function FortressGame() {
   useEffect(() => {
     requestRef.current = requestAnimationFrame(renderGame);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [roomData, players, myState, isFiring]); // Rerun loop binding if needed
+  }, [roomData, players, myState, isFiring, user]); // 의존성 추가
 
-  // --- Logic ---
+  // --- Logic Functions ---
 
   const handleCreate = async () => {
     if(!playerName) return alert("이름을 입력하세요");
+    if(!user) return alert("로그인 대기중...");
+    
     const code = Math.random().toString(36).substring(2,6).toUpperCase();
     
-    // Init Players
     const initialPlayers = {
       [user.uid]: {
         id: user.uid, name: playerName, hp: MAX_HP, 
-        x: 100, angle: 45 // Host starts Left
+        x: 100, angle: 45 
       }
     };
 
-    await setDoc(doc(db,'rooms',code), {
-      hostId: user.uid, status: 'lobby', wind: 0,
-      currentTurnId: null,
-      lastShot: null
-    });
-    await setDoc(doc(db,'rooms',code,'players','all'), initialPlayers);
-    setRoomCode(code);
+    try {
+      await setDoc(doc(db,'rooms',code), {
+        hostId: user.uid, status: 'lobby', wind: 0,
+        currentTurnId: null, lastShot: null
+      });
+      await setDoc(doc(db,'rooms',code,'players','all'), initialPlayers);
+      setRoomCode(code);
+    } catch(e) {
+      console.error(e);
+      alert("방 생성 실패 (권한 문제일 수 있음)");
+    }
   };
 
   const handleJoin = async () => {
     if(!playerName) return alert("이름 입력");
+    if(!user) return alert("로그인 대기중...");
+
     const roomRef = doc(db,'rooms',roomCode);
     const snap = await getDoc(roomRef);
     if(!snap.exists()) return alert("방 없음");
@@ -247,12 +250,12 @@ export default function FortressGame() {
     const pSnap = await getDoc(pRef);
     const currentPlayers = pSnap.data() || {};
     
-    // Join as P2 (Right side)
+    // 오른쪽 팀으로 참가
     const newPlayers = {
       ...currentPlayers,
       [user.uid]: {
         id: user.uid, name: playerName, hp: MAX_HP,
-        x: MAP_WIDTH - 140, angle: 45 // Guest starts Right
+        x: MAP_WIDTH - 140, angle: 45 
       }
     };
     await setDoc(pRef, newPlayers);
@@ -265,25 +268,22 @@ export default function FortressGame() {
 
     await updateDoc(doc(db, 'rooms', roomCode), {
       status: 'playing',
-      currentTurnId: pIds[0], // Host first
-      wind: Math.floor(Math.random() * 10) - 5 // -5 ~ 5
+      currentTurnId: pIds[0], 
+      wind: Math.floor(Math.random() * 10) - 5 
     });
   };
 
-  // 발사 시작 (내 화면)
   const fireBullet = async () => {
-    if (!isMyTurn || isFiring) return;
+    if (!isMyTurn || isFiring || !user || !players[user.uid]) return;
     setIsFiring(true);
 
-    // 1. Calculate trajectory vectors
     const isLeft = players[user.uid].x < MAP_WIDTH / 2;
     const rad = (myState.angle * Math.PI) / 180;
-    const speed = myState.power * 0.4; // Scale down power
+    const speed = myState.power * 0.4;
     
     const vx = isLeft ? Math.cos(rad) * speed : -Math.cos(rad) * speed;
     const vy = -Math.sin(rad) * speed;
 
-    // 2. Start Local Animation
     bulletRef.current = { 
       active: true, 
       x: players[user.uid].x + TANK_SIZE/2, 
@@ -291,7 +291,6 @@ export default function FortressGame() {
       vx, vy 
     };
 
-    // 3. Sync to DB (So enemy can see)
     await updateDoc(doc(db, 'rooms', roomCode), {
       lastShot: {
         shooterId: user.uid,
@@ -303,11 +302,9 @@ export default function FortressGame() {
     });
   };
 
-  // 적이 쏜 것 처리
   const triggerEnemyShot = (shotData) => {
-    if (shotData.shooterId === user.uid) return; // 내가 쏜건 이미 처리함
+    if (!user || shotData.shooterId === user.uid) return; 
     
-    // 적의 발사 애니메이션 재생
     bulletRef.current = {
       active: true,
       x: shotData.startX,
@@ -317,28 +314,27 @@ export default function FortressGame() {
     };
   };
 
-  // 폭발 처리 (Hit Check는 쏘는 사람 클라이언트에서 계산해서 DB 업데이트 - 신뢰 모델)
   const handleExplosion = async (ex, ey, checkHit = true) => {
     bulletRef.current.active = false;
     explosionRef.current = { active: true, x: ex, y: ey, radius: 0 };
     
-    // 내가 쏜 경우에만 히트 판정 및 결과 전송 (권한 문제 해결 및 중복 방지)
-    if (isMyTurn && isFiring && checkHit) {
-      // Check Hit against Players
+    // 내가 쏜 경우에만 데미지 판정 (권한/중복 방지)
+    if (isMyTurn && isFiring && checkHit && user) {
       let hitDetected = false;
       const newPlayers = { ...players };
 
       Object.keys(newPlayers).forEach(pid => {
-        if (pid === user.uid) return; // 자폭 제외 (원하면 포함 가능)
+        if (pid === user.uid) return; // 자폭 제외
         
         const p = newPlayers[pid];
         const tankCenter = p.x + TANK_SIZE/2;
         const dist = Math.abs(ex - tankCenter);
         
-        if (dist < 40) { // Hit Range
+        if (dist < 40) { 
           hitDetected = true;
-          const damage = Math.floor(40 - dist); // 중심에 가까울수록 아픔
-          p.hp = Math.max(0, p.hp - damage);
+          const damage = Math.floor(40 - dist); 
+          // 객체 불변성 유지하며 업데이트
+          newPlayers[pid] = { ...p, hp: Math.max(0, p.hp - damage) };
         }
       });
 
@@ -350,20 +346,22 @@ export default function FortressGame() {
 
   const finishMyTurn = async () => {
     setIsFiring(false);
-    // Next Turn
     const pIds = Object.keys(players);
     const currIdx = pIds.indexOf(user.uid);
     const nextIdx = (currIdx + 1) % pIds.length;
     
     await updateDoc(doc(db, 'rooms', roomCode), {
       currentTurnId: pIds[nextIdx],
-      wind: Math.floor(Math.random() * 11) - 5 // Change Wind
+      wind: Math.floor(Math.random() * 11) - 5 
     });
   };
 
   // --- UI Renders ---
-
-  if(!user) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white">Loading Fortress...</div>;
+  
+  // 로딩 화면 (Auth 초기화 전)
+  if (!user && !initError) {
+     return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">Connecting...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden flex flex-col">
@@ -385,6 +383,13 @@ export default function FortressGame() {
           </div>
         )}
       </header>
+      
+      {/* Init Error Alert */}
+      {initError && (
+        <div className="bg-red-500 text-white p-2 text-center text-sm font-bold">
+           <AlertCircle className="inline w-4 h-4 mb-1 mr-1"/> {initError}
+        </div>
+      )}
 
       {/* Main Game Area */}
       <main className="flex-1 relative flex justify-center items-center bg-black">
@@ -405,8 +410,8 @@ export default function FortressGame() {
             <div className="text-center space-y-6">
                <div className="text-6xl animate-bounce">🚀</div>
                <h2 className="text-3xl font-black">대기실</h2>
-               <div className="flex justify-center gap-4">
-                 {Object.values(players).map(p => (
+               <div className="flex justify-center gap-4 flex-wrap">
+                 {players && Object.values(players).map(p => (
                    <div key={p.id} className="bg-slate-800 p-4 rounded-xl border border-slate-600 min-w-[120px]">
                      <div className={`w-3 h-3 rounded-full mb-2 mx-auto ${p.id===roomData.hostId?'bg-yellow-400':'bg-slate-500'}`}></div>
                      {p.name}
@@ -422,11 +427,11 @@ export default function FortressGame() {
                 ref={canvasRef} 
                 width={MAP_WIDTH} 
                 height={MAP_HEIGHT} 
-                className="bg-sky-200 rounded-xl cursor-crosshair touch-none"
+                className="bg-sky-200 rounded-xl cursor-crosshair touch-none max-w-full h-auto"
               />
               
               {/* Game Over Screen */}
-              {Object.values(players).some(p => p.hp <= 0) && (
+              {players && Object.values(players).some(p => p.hp <= 0) && (
                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center rounded-xl z-20">
                     <Trophy size={60} className="text-yellow-400 mb-4" />
                     <h2 className="text-4xl font-black text-white mb-2">GAME OVER</h2>
@@ -441,7 +446,7 @@ export default function FortressGame() {
               {!isFiring && (
                 <div className="absolute top-10 w-full text-center pointer-events-none">
                   <span className={`inline-block px-6 py-2 rounded-full text-lg font-black shadow-xl border-2 ${isMyTurn ? 'bg-yellow-500 border-yellow-300 text-black scale-110' : 'bg-slate-800 border-slate-600 text-slate-400'}`}>
-                    {isMyTurn ? "YOUR TURN!" : `${players[roomData.currentTurnId]?.name || 'Enemy'}'s Turn`}
+                    {isMyTurn ? "YOUR TURN!" : `${players?.[roomData.currentTurnId]?.name || 'Enemy'}'s Turn`}
                   </span>
                 </div>
               )}
@@ -454,12 +459,11 @@ export default function FortressGame() {
       {roomData?.status === 'playing' && (
         <div className="bg-slate-800 p-4 border-t border-slate-700 h-[140px] flex items-center justify-center gap-8">
           
-          {/* Controls */}
           <div className={`flex items-center gap-8 transition-opacity ${isMyTurn && !isFiring ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
             
             {/* Angle Control */}
             <div className="flex flex-col items-center gap-2">
-              <label className="text-xs font-bold text-slate-400 uppercase">Angle (각도)</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">Angle</label>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-xl w-12 text-right">{myState.angle}°</span>
                 <input 
@@ -473,7 +477,7 @@ export default function FortressGame() {
 
             {/* Power Control */}
             <div className="flex flex-col items-center gap-2">
-              <label className="text-xs font-bold text-slate-400 uppercase">Power (파워)</label>
+              <label className="text-xs font-bold text-slate-400 uppercase">Power</label>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-xl w-12 text-right text-red-400">{myState.power}</span>
                 <input 
