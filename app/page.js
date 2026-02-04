@@ -597,8 +597,16 @@ function AceAttorneyGame() {
       )}
       {/* 캐릭터 */}
       <div className="absolute bottom-40 w-full flex justify-center pointer-events-none transition-all duration-300 z-10">
-        { (pressMode ? pressChar : char) && <div className="text-[250px] filter drop-shadow-2xl">{(pressMode ? pressChar : char).image || (pressMode ? pressChar : char).images[(pressMode ? pressFace : currentLine.face) || 'normal']}</div>}
-      </div>
+  {(() => {
+    const currentChar = pressMode ? pressChar : char;
+    if (!currentChar) return null;  // 캐릭터 없으면 아무것도 렌더링 안 함 (에러 방지)
+
+    const face = pressMode ? pressFace : currentLine.face || 'normal';
+    const emoji = currentChar.image || (currentChar.images && currentChar.images[face]) || '❓';  // 안전한 값 추출
+
+    return <div className="text-[250px] filter drop-shadow-2xl">{emoji}</div>;
+  })()}
+</div>
       {/* 심문 표시 */}
       {isCE && (
         <div className="absolute top-20 w-full text-center z-20">
