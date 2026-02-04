@@ -1,404 +1,497 @@
-// components/AceAttorneyGame.js
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
-import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles, MessageSquare, MapPin, Eye } from 'lucide-react';
-// (나머지 코드 동일, 생략. 이전 제공 코드 복사해서 사용)
-// ==================== [1. 통합 캐릭터 및 증거 설정] ====================
+import React, { useState, useEffect } from 'react';
+import { Briefcase, ChevronRight, AlertTriangle, MessageSquare, MapPin, Eye, Save, Book } from 'lucide-react';
+
+// ==================== [캐릭터 설정] ====================
 const CHARACTERS = {
   judge: { name: "재판장", image: "👨‍⚖️" },
   prosecutor: { name: "나검사", image: "🤵‍♂️", desc: "패배를 모르는 냉혈한" },
   player: { name: "김변호", image: "👉", desc: "역전의 발상" },
-  witness: { name: "최태오", images: { normal: "😎", sweat: "😎💦", angry: "🤬", shock: "🤯", breakdown: "🧟‍♂️" }, desc: "미술부 부장. 거만함." },
+  witness: { 
+    name: "최태오", 
+    images: { 
+      normal: "😎", 
+      sweat: "😰", 
+      angry: "😡", 
+      shock: "😱", 
+      breakdown: "🤯" 
+    }, 
+    desc: "미술부 부장. 거만함." 
+  },
   jimin: { name: "이지민", image: "🥺", desc: "피고인. 소심한 미술부원." },
   narrator: { name: "나레이션", image: "" },
   teacher: { name: "미술 선생님", image: "👩‍🏫", desc: "미술부 지도교사." },
-  club_member: { name: "미술부원 A", image: "🧑‍🎨", desc: "평범한 부원." }
+  club_member: { name: "미술부원 A", image: "🧑‍🎨", desc: "평범한 부원." },
+  janitor: { name: "관리인", image: "🧹", desc: "학교 관리인" }
 };
+
+// ==================== [증거 설정] ====================
 const ALL_EVIDENCE = [
-  { id: 'knife', name: '미술용 나이프', icon: '🔪', desc: '지민의 지문이 묻어있지만, 누구나 만질 수 있는 공용 도구다.' },
-  { id: 'picture', name: '훼손된 그림', icon: '🎨', desc: '붉은 물감통이 터져서 그림 전체가 피처럼 붉게 물들었다.' },
-  { id: 'cctv', name: '복도 CCTV', icon: '📹', desc: '사건 시각(16:00) 전후로 미술실 앞 복도를 지나간 사람은 없었다.' },
-  { id: 'floor_map', name: '미술실 도면', icon: '🗺️', desc: '미술실에는 앞문과 뒷문이 있다. 뒷문은 창고로 연결된다.' },
-  { id: 'glove', name: '작업용 장갑', icon: '🧤', desc: '지민이가 평소 사용하는 장갑. 깨끗하다.' },
-  { id: 'storage_photo', name: '창고 사진', icon: '🪟', desc: '창고의 유일한 창문. 쇠창살로 단단히 막혀있다.' },
-  { id: 'police_report', name: '수색 보고서', icon: '👮', desc: '사건 직후 창고를 수색했으나, 안에는 아무도 없었다.' },
-  { id: 'apron', name: '지민의 앞치마', icon: '🎽', desc: '물감 한 방울 묻지 않은 깨끗한 앞치마.' },
-  { id: 'floor_photo', name: '바닥 현장 사진', icon: '📸', desc: '그림 주변 반경 2m까지 붉은 물감이 튀어 난장판이다.' },
-  { id: 'stained_glove', name: '피묻은(?) 장갑', icon: '🥊', desc: '★결정적 증거★ 쓰레기통 깊숙한 곳에서 발견된 붉은 물감 범벅의 장갑. [태오]라는 이름이 쓰여있다.' }
+  { id: 'knife', name: '미술용 나이프', icon: '🔪', desc: '지문이 묻은 공용 도구. 누구나 만질 수 있다.' },
+  { id: 'picture', name: '훼손된 그림', icon: '🖼️', desc: '붉은 물감으로 뒤덮인 태오의 자랑스러운 작품.' },
+  { id: 'cctv', name: '복도 CCTV', icon: '📹', desc: '16:00 전후 미술실 앞 복도엔 아무도 없었다.' },
+  { id: 'floor_map', name: '미술실 도면', icon: '🗺️', desc: '앞문과 뒷문(창고 연결) 2개의 출구가 있다.' },
+  { id: 'glove', name: '지민 작업용 장갑', icon: '🧤', desc: '지민이 평소 쓰는 깨끗한 장갑.' },
+  { id: 'storage_photo', name: '창고 창문 사진', icon: '🪟', desc: '쇠창살로 완전히 막혀 탈출 불가능.' },
+  { id: 'police_report', name: '경찰 수색 보고서', icon: '👮', desc: '사건 직후 창고 내부엔 아무도 없었음.' },
+  { id: 'apron', name: '지민의 앞치마', icon: '🎽', desc: '사건 당시 착용. 물감 한 방울 없이 깨끗함.' },
+  { id: 'floor_photo', name: '현장 바닥 사진', icon: '📸', desc: '그림 중심 반경 2m가 물감 범벅.' },
+  { id: 'stained_glove', name: '태오의 장갑', icon: '🥊', desc: '★결정적★ 쓰레기통 속 붉은 물감 범벅 장갑. [태오] 이름 표시.' },
+  { id: 'witness_statement', name: '태오 최초 진술서', icon: '📋', desc: '경찰 조사 시 "복도로 도망"이라 진술.' },
+  { id: 'time_table', name: '미술부 일정표', icon: '📅', desc: '당일 16:00 이후 미술실 사용 예약 없음.' },
+  { id: 'paint_can', name: '터진 물감통', icon: '🎨', desc: '내부에서 터진 흔적. 외부 충격 아님.' }
 ];
-// ==================== [2. 탐정 파트 시나리오 (비주얼 노벨 스타일)] ====================
-const INVESTIGATION_LOCATIONS = [
-  { id: 'art_room', name: '미술실', bg: 'bg-indigo-900', desc: '사건 현장. 물감 냄새가 진동한다.' },
-  { id: 'hallway', name: '복도', bg: 'bg-gray-700', desc: '미술실 앞 복도. CCTV가 설치되어 있다.' },
-  { id: 'storage', name: '창고', bg: 'bg-amber-800', desc: '미술실 뒷문으로 연결된 비품 창고.' },
-  { id: 'club_room', name: '부실', bg: 'bg-green-900', desc: '미술부 활동실. 부원들이 모이는 곳.' }
-];
-const INVESTIGATION_SCRIPT = [
-  { type: 'scene', bg: 'bg-black', location: 'art_room' },
-  { type: 'talk', char: 'narrator', text: "[탐정 파트 시작] 사건 직후, 김변호는 증거를 모으기 위해 학교를 조사한다." },
-  { type: 'talk', char: 'player', text: "(지민이를 구하려면 증거를 모아야 해. 어디부터 조사할까?)" },
-  { type: 'choice', options: [
-    { text: '미술실 조사', action: 'investigate_art_room' },
-    { text: '복도 확인', action: 'investigate_hallway' },
-    { text: '창고 보기', action: 'investigate_storage' },
-    { text: '부원들 대화', action: 'talk_club' }
-  ], id: 'main_choice' },
-  // 미술실 조사 브랜치
-  { id: 'investigate_art_room', type: 'talk', char: 'player', text: "(미술실... 현장이 아직 남아있군.)" },
-  { type: 'investigate', items: [
-    { name: '그림', desc: '훼손된 그림. 물감이 사방에 튀었다.', evidence: 'picture' },
-    { name: '나이프', desc: '바닥에 떨어진 나이프. 지문 검사가 필요해.', evidence: 'knife' },
-    { name: '쓰레기통', desc: '깊숙이 물감 묻은 장갑이... 이름이 태오?', evidence: 'stained_glove' },
-    { name: '바닥', desc: '물감 범벅. 사진 찍자.', evidence: 'floor_photo' }
-  ] },
-  { type: 'talk', char: 'player', text: "(이 정도면 충분한가? 다른 곳도 봐야 해.)" },
-  { type: 'jump', to: 'main_choice' },
-  // 복도 브랜치
-  { id: 'investigate_hallway', type: 'talk', char: 'player', text: "(복도... CCTV가 보이네.)" },
-  { type: 'talk', char: 'teacher', text: "변호사님? CCTV 기록을 찾으시나요? 여기요." },
-  { type: 'evidence_add', id: 'cctv' },
-  { type: 'talk', char: 'player', text: "(좋아, 복도 CCTV 획득!)" },
-  { type: 'jump', to: 'main_choice' },
-  // 창고 브랜치
-  { id: 'investigate_storage', type: 'talk', char: 'player', text: "(창고... 뒷문으로 연결됐어.)" },
-  { type: 'investigate', items: [
-    { name: '창문', desc: '쇠창살로 막혀있어. 사진 찍자.', evidence: 'storage_photo' },
-    { name: '수색 보고서', desc: '경찰 보고서. 안은 비었다고.', evidence: 'police_report' }
-  ] },
-  { type: 'jump', to: 'main_choice' },
-  // 부원 대화 브랜치
-  { id: 'talk_club', type: 'talk', char: 'club_member', text: "변호사님? 지민이는 착한 애예요. 태오 부장이 좀 질투심이 강했죠." },
-  { type: 'choice', options: [
-    { text: '지민이 앞치마에 대해', action: 'ask_apron' },
-    { text: '장갑에 대해', action: 'ask_glove' },
-    { text: '도면에 대해', action: 'ask_map' },
-    { text: '돌아가기', action: 'main_choice' }
-  ] },
-  { id: 'ask_apron', type: 'talk', char: 'jimin', text: "제 앞치마요? 사건 때 입었어요. 물감 한 방울 안 묻었어요." },
-  { type: 'evidence_add', id: 'apron' },
-  { type: 'jump', to: 'talk_club' },
-  { id: 'ask_glove', type: 'talk', char: 'jimin', text: "제 장갑은 깨끗해요. 태오 부장 건 물감 묻었을지도..." },
-  { type: 'evidence_add', id: 'glove' },
-  { type: 'jump', to: 'talk_club' },
-  { id: 'ask_map', type: 'talk', char: 'teacher', text: "미술실 도면? 여기 있어요." },
-  { type: 'evidence_add', id: 'floor_map' },
-  { type: 'jump', to: 'talk_club' },
-  // 종료 조건 (모든 증거 모으면 재판 시작)
-  { type: 'end_investigation', text: "증거 수집 완료! 재판으로 이동합니다." }
-];
-// ==================== [재판 스크립트] ====================
-const SCRIPT_PART_1 = [
-  // --- 인트로 ---
+
+// ==================== [게임 스크립트] ====================
+const FULL_SCRIPT = [
+  // ========================================
+  // [도입] 프롤로그 - 사건 발생
+  // ========================================
+  { type: 'scene', bg: 'bg-black', music: 'intro' },
+  { type: 'talk', char: 'narrator', text: "어느 날 오후, 명문 세화고등학교 미술실에서 충격적인 사건이 발생했다." },
+  { type: 'scene', bg: 'bg-indigo-900' },
+  { type: 'talk', char: 'narrator', text: "미술부 부장 최태오의 수상작이 무참히 훼손당한 것." },
+  { type: 'talk', char: 'witness', text: "내 그림이... 내 그림이!!!!", face: 'angry' },
+  { type: 'talk', char: 'narrator', text: "현장에서 붙잡힌 용의자는 미술부의 소심한 신입, 이지민이었다." },
+  { type: 'talk', char: 'jimin', text: "저... 저는... 정말 안 했어요...", face: 'normal' },
+  { type: 'talk', char: 'narrator', text: "하지만 모든 증거는 그녀를 가리키고 있었다." },
   { type: 'scene', bg: 'bg-slate-900' },
-  { type: 'talk', char: 'judge', text: "지금부터 '미술실 그림 훼손 사건'의 재판을 시작합니다." },
-  { type: 'talk', char: 'prosecutor', text: "이번 사건은 너무나 명백합니다. 목격자, 흉기, 지문. 모든 게 피고인을 가리키죠.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "(지민이는 절대 그럴 아이가 아니야. 분명 함정이 있어!)", face: 'normal' },
-  { type: 'talk', char: 'judge', text: "검찰 측, 입증을 시작하십시오." },
- 
-  // --- 검사의 논리 ---
-  { type: 'talk', char: 'prosecutor', text: "사건은 어제 오후 4시. 미술실에서 발생했습니다." },
-  { type: 'talk', char: 'prosecutor', text: "피고인은 피해자의 그림을 [미술용 나이프]로 찢었습니다.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "잠깐! 지문이 나왔다고 해서 범인이라 단정할 순 없습니다!", size: 'text-3xl' },
-  { type: 'talk', char: 'prosecutor', text: "훗. 그럴 줄 알고 '결정적인 목격자'를 준비했지. 들어오게.", face: 'normal' },
-  // --- 증인 등장 ---
+  { type: 'talk', char: 'narrator', text: "재판 3일 전, 지민의 어머니가 김변호 법률사무소를 찾아왔다." },
+  { type: 'talk', char: 'player', text: "걱정 마십시오. 제가 반드시 지민 양의 결백을 증명하겠습니다!" },
+  { type: 'talk', char: 'narrator', text: "그렇게 김변호의 새로운 사건이 시작되었다..." },
+  
+  // ========================================
+  // [발단] 1차 탐정 파트 - 기본 증거 수집
+  // ========================================
+  { type: 'scene', bg: 'bg-gray-800', location: 'hallway' },
+  { type: 'talk', char: 'narrator', text: "[탐정 파트 1 - 기초 조사]" },
+  { type: 'talk', char: 'player', text: "(학교에 왔다. 현장을 직접 확인해야겠어.)" },
+  
+  { id: 'investigation_hub_1', type: 'talk', char: 'player', text: "(어디를 조사할까?)" },
+  { type: 'investigation_menu', locations: ['art_room_1', 'hallway_1', 'storage_1', 'office_1'] },
+  
+  // 미술실 조사 1
+  { id: 'art_room_1', type: 'scene', bg: 'bg-indigo-900' },
+  { type: 'talk', char: 'player', text: "(미술실... 아직 현장이 보존되어 있군.)" },
+  { type: 'investigate', items: [
+    { name: '훼손된 그림', desc: '완전히 망가졌다. 붉은 물감 투성이...', evidence: 'picture' },
+    { name: '미술용 나이프', desc: '바닥에 떨어져 있다. 지문 감식 필요.', evidence: 'knife' },
+    { name: '바닥', desc: '사진을 찍어두자. 증거가 될 수 있어.', evidence: 'floor_photo' }
+  ]},
+  { type: 'talk', char: 'player', text: "(물감이 엄청나게 튄 흔적... 폭발한 것 같아.)" },
+  { type: 'jump', to: 'investigation_hub_1' },
+  
+  // 복도 조사 1
+  { id: 'hallway_1', type: 'scene', bg: 'bg-gray-700' },
+  { type: 'talk', char: 'player', text: "(복도에 CCTV가 있네.)" },
+  { type: 'talk', char: 'teacher', text: "변호사님? CCTV 확인하시려구요?" },
+  { type: 'talk', char: 'player', text: "네, 사건 당일 영상 좀 볼 수 있을까요?" },
+  { type: 'talk', char: 'teacher', text: "여기 있습니다. 근데 이상한 게... 4시 전후론 아무도 안 지나갔더라구요." },
+  { type: 'evidence_add', id: 'cctv' },
+  { type: 'talk', char: 'player', text: "(복도로 나간 사람이 없다...? 흥미롭군.)" },
+  { type: 'jump', to: 'investigation_hub_1' },
+  
+  // 창고 조사 1
+  { id: 'storage_1', type: 'scene', bg: 'bg-amber-800' },
+  { type: 'talk', char: 'player', text: "(창고... 미술실 뒷문과 연결되어 있어.)" },
+  { type: 'investigate', items: [
+    { name: '창문', desc: '쇠창살이 단단히... 사진 찍자.', evidence: 'storage_photo' },
+    { name: '선반', desc: '미술 재료들이 정리되어 있다.' }
+  ]},
+  { type: 'talk', char: 'janitor', text: "사건 당일 여길 확인했는데, 아무도 없었어요." },
+  { type: 'evidence_add', id: 'police_report' },
+  { type: 'jump', to: 'investigation_hub_1' },
+  
+  // 교무실 조사 1
+  { id: 'office_1', type: 'scene', bg: 'bg-green-900' },
+  { type: 'talk', char: 'teacher', text: "지민이는 정말 착한 아이예요. 절대 그럴 애가 아닌데..." },
+  { type: 'talk', char: 'player', text: "혹시 미술실 도면 같은 거 있나요?" },
+  { type: 'talk', char: 'teacher', text: "아, 네. 여기 있습니다." },
+  { type: 'evidence_add', id: 'floor_map' },
+  { type: 'talk', char: 'player', text: "(앞문과 뒷문... 2개의 출구가 있군.)" },
+  { type: 'jump', to: 'investigation_hub_1' },
+  
+  // 조사 완료 후
+  { type: 'check_evidence', required: ['cctv', 'floor_map', 'picture', 'floor_photo'], next: 'investigation_1_end' },
+  
+  { id: 'investigation_1_end', type: 'scene', bg: 'bg-slate-800' },
+  { type: 'talk', char: 'player', text: "(기본적인 증거는 모았어. 이제 지민이를 만나봐야겠다.)" },
+  { type: 'scene', bg: 'bg-blue-900' },
+  { type: 'talk', char: 'jimin', text: "변호사님... 정말 저 믿어주시는 거죠?" },
+  { type: 'talk', char: 'player', text: "당연하죠. 당신 앞치마 좀 볼 수 있을까요?" },
+  { type: 'talk', char: 'jimin', text: "네... 사건 때 입었던 건데, 깨끗하죠?" },
+  { type: 'evidence_add', id: 'apron' },
+  { type: 'talk', char: 'player', text: "(물감 한 방울도 안 묻었어... 이건 중요한 증거야!)" },
+  { type: 'talk', char: 'jimin', text: "제 장갑도요... 깨끗해요. 전 정말 안 했어요!" },
+  { type: 'evidence_add', id: 'glove' },
+  
+  // ========================================
+  // [전개] 1차 재판 - 기본 모순 발견
+  // ========================================
+  { type: 'scene', bg: 'bg-slate-900' },
+  { type: 'talk', char: 'narrator', text: "[제1회 공판]" },
+  { type: 'talk', char: 'judge', text: "이제 '미술실 그림 훼손 사건' 재판을 시작하겠습니다." },
+  { type: 'talk', char: 'prosecutor', text: "검찰은 피고인 이지민이 질투심으로 범행을 저질렀다고 주장합니다.", face: 'normal' },
+  { type: 'talk', char: 'player', text: "(지민이는 절대 그럴 아이가 아니야...!)" },
+  { type: 'talk', char: 'judge', text: "검찰 측, 증거를 제시하시오." },
+  { type: 'talk', char: 'prosecutor', text: "첫째, 범행 도구인 나이프에서 피고인의 지문이 나왔습니다.", face: 'normal' },
+  { type: 'talk', char: 'prosecutor', text: "둘째, 목격자가 있습니다. 증인을 부르겠습니다!", face: 'normal' },
+  
   { type: 'anim', name: 'witness_enter' },
-  { type: 'talk', char: 'witness', text: "여~ 안녕? 내가 미술부 부장, 최태오다.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "(저 거만한 태도... 마음에 안 드는데.)" },
-  { type: 'talk', char: 'judge', text: "증인, 그날 본 것을 정확히 증언하세요." },
-  // ================= [논리 싸움 1: 헛점 찌르기] =================
+  { type: 'talk', char: 'witness', text: "안녕하세요~ 미술부 부장 최태오입니다.", face: 'normal' },
+  { type: 'talk', char: 'player', text: "(저 여유로운 태도... 뭔가 수상한데.)" },
+  { type: 'talk', char: 'judge', text: "증인은 그날 본 것을 정확히 증언하세요." },
+  
+  // 1차 심문
   { type: 'anim', name: 'cross_exam_start' },
   {
     id: 'ce_1',
     type: 'cross_exam',
+    title: '목격 증언',
     statements: [
       {
-        text: "1. 그날 저는 4시에 미술실 뒷정리를 하러 갔습니다.",
+        text: "1. 그날 오후 4시, 저는 미술실로 뒷정리를 하러 갔습니다.",
         weakness: false,
-        press: "미술실 뒷정리를 왜 당신이 했습니까? 부장이라도 평소엔 부원들이 하지 않나요?",
+        press: "왜 혼자 뒷정리를 했나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "흥, 부원들이 게을러서 내가 직접 나섰지. 문제라도?", face: 'angry' },
-          { type: 'talk', char: 'player', text: "(음... 별로 중요한 정보는 아니네.)" }
+          { type: 'talk', char: 'witness', text: "부장이니까요. 책임감 있게 행동했죠.", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(별 문제없는 답변이네...)" }
         ]
       },
       {
-        text: "2. 문을 열자마자 지민이가 그림을 찢고 있는 걸 봤죠!",
+        text: "2. 문을 열자마자 지민이가 나이프를 들고 있는 걸 봤습니다.",
         weakness: false,
-        press: "어느 문으로 들어갔습니까? 앞문? 뒷문?",
+        press: "어느 문으로 들어갔죠?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "당연히 앞문이지. 뒷문은 창고 쪽이잖아.", face: 'normal' },
-          { type: 'talk', char: 'player', text: "(앞문이라... 도면을 확인해보자.)" },
-          { type: 'talk', char: 'judge', text: "추궁 결과, 새로운 정보가 나왔군요." }
+          { type: 'talk', char: 'witness', text: "당연히 앞문이죠. 항상 앞문으로 다닙니다.", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(앞문... 기억해두자.)" }
         ]
       },
       {
-        text: "3. 너무 놀라서 소리를 질렀고, 지민이는 저를 보고 도망쳤습니다.",
+        text: "3. 제 그림은 이미 망가져 있었고, 물감이 사방에 튀어있었어요.",
         weakness: false,
-        press: "소리를 질렀다면 누가 들었을 텐데, 다른 증인이 없습니까?",
+        press: "그때 지민이는 뭐라고 했나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "그 시간엔 다들 집에 갔어. 나 혼자였지.", face: 'sweat' },
-          { type: 'talk', char: 'player', text: "(혼자였다... 의심스럽지만, 증거가 없네.)" }
+          { type: 'talk', char: 'witness', text: "아무 말도 안 했어요. 그냥 놀란 표정이었죠.", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(놀란 표정...?)" }
         ]
       },
       {
-        text: "4. 복도로 뛰어가는 뒷모습을 제 두 눈으로 똑똑히 봤다니까요!",
-        weakness: true, // 약점: 복도 CCTV와 모순
+        text: "4. 저는 소리를 질렀고, 지민이는 복도로 뛰어 도망갔습니다!",
+        weakness: true,
         contradiction: 'cctv',
-        failMsg: "복도로 도망쳤다면... 그 증거와는 관련이 없어 보이는데?",
-        press: "뒷모습을 봤다면 얼굴은 못 봤다는 뜻인가요?",
+        failMsg: "복도 CCTV와 관련이 있을 것 같은데...",
+        press: "복도로 도망갔다는 확신이 있나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "뭐, 등짝이 지민이 스타일이었어. 틀림없다고!", face: 'angry' },
-          { type: 'talk', char: 'player', text: "(등짝...? 확실하지 않네. 하지만 더 추궁할 건 없어.)" }
+          { type: 'talk', char: 'witness', text: "당연하죠! 제 눈으로 똑똑히 봤습니다!", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(여기다! 증거 제시!)" }
         ]
       }
     ]
-  }
-];
-const PART_1_SUCCESS = [
+  },
+  
+  // 1차 이의제기 성공
   { type: 'anim', name: 'objection' },
-  { type: 'talk', char: 'player', text: "이의 있소! 증인은 방금 '복도'로 도망치는 걸 봤다고 했죠?", size: 'text-3xl', color: 'text-blue-400' },
-  { type: 'talk', char: 'witness', text: "그, 그래! 내 시력이 2.0이야! 틀림없어!", face: 'sweat' },
+  { type: 'talk', char: 'player', text: "이의 있습니다!", size: 'text-3xl', color: 'text-blue-400' },
+  { type: 'talk', char: 'witness', text: "뭐, 뭐가 문제죠?!", face: 'sweat' },
   { type: 'evidence_flash', id: 'cctv' },
-  { type: 'talk', char: 'player', text: "하지만 이 [복도 CCTV] 기록을 보십시오!", size: 'text-3xl' },
-  { type: 'talk', char: 'player', text: "사건 발생 시각인 4시 전후로, 복도를 지나간 사람은 '아무도' 없었습니다!", color: 'text-blue-400' },
-  { type: 'talk', char: 'judge', text: "흐음... 정말이군요. 개미 한 마리 안 찍혀 있습니다.", face: 'normal' },
-  { type: 'talk', char: 'witness', text: "크윽... 그, 그건...!", face: 'shock' },
-  { type: 'talk', char: 'prosecutor', text: "이의 있음! 변호인은 성급하군.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "(...나검사! 무슨 꿍꿍이지?)", face: 'normal' }
-];
-const SCRIPT_PART_2 = [
-  // --- 지난 이야기 & 검사의 반격 ---
+  { type: 'talk', char: 'player', text: "이 [복도 CCTV] 기록을 보십시오!", size: 'text-2xl' },
+  { type: 'talk', char: 'player', text: "사건 시각인 4시 전후로 복도를 지나간 사람은 '단 한 명도' 없었습니다!", color: 'text-blue-400' },
+  { type: 'talk', char: 'judge', text: "오오... 정말 아무도 없군요." },
+  { type: 'talk', char: 'witness', text: "그, 그건...", face: 'shock' },
+  { type: 'talk', char: 'prosecutor', text: "잠깐! 변호인, 성급하군요.", face: 'normal' },
+  
+  // ========================================
+  // [위기] 검사의 반격 & 2차 탐정
+  // ========================================
+  { type: 'talk', char: 'prosecutor', text: "증인, 혹시 기억을 잘못한 것 아닙니까?", face: 'normal' },
+  { type: 'talk', char: 'witness', text: "아! 맞다, 이제 생각났어요!", face: 'normal' },
+  { type: 'talk', char: 'witness', text: "복도가 아니라... 뒷문으로 창고 쪽으로 도망갔어요!", face: 'normal' },
+  { type: 'talk', char: 'player', text: "뭐?! 증언을 번복한다고?!" },
+  { type: 'talk', char: 'judge', text: "흠... 증인의 기억이 애매하군요." },
+  { type: 'talk', char: 'prosecutor', text: "재판장님, 증거 수집을 위한 휴정을 요청합니다.", face: 'normal' },
+  { type: 'talk', char: 'judge', text: "허가합니다. 양측은 추가 조사를 실시하시오." },
+  
+  // 2차 탐정 파트
+  { type: 'scene', bg: 'bg-gray-800' },
+  { type: 'talk', char: 'narrator', text: "[탐정 파트 2 - 심층 조사]" },
+  { type: 'talk', char: 'player', text: "(증언이 바뀌었어... 뭔가 숨기는 게 있다!)" },
+  
+  { id: 'investigation_hub_2', type: 'talk', char: 'player', text: "(더 깊이 파헤쳐야 해.)" },
+  { type: 'investigation_menu', locations: ['art_room_2', 'storage_2', 'club_room_2', 'witness_room_2'] },
+  
+  // 미술실 재조사
+  { id: 'art_room_2', type: 'scene', bg: 'bg-indigo-900' },
+  { type: 'talk', char: 'player', text: "(다시 꼼꼼히 살펴보자...)" },
+  { type: 'investigate', items: [
+    { name: '쓰레기통', desc: '깊숙이 뭔가 있다...!', evidence: 'stained_glove' },
+    { name: '물감통', desc: '내부에서 터진 흔적이...', evidence: 'paint_can' }
+  ]},
+  { type: 'talk', char: 'player', text: "(이건... 태오 이름이 적힌 장갑! 물감 범벅이잖아!)" },
+  { type: 'jump', to: 'investigation_hub_2' },
+  
+  // 창고 재조사
+  { id: 'storage_2', type: 'scene', bg: 'bg-amber-800' },
+  { type: 'talk', char: 'player', text: "(창고를 다시 보자...)" },
+  { type: 'talk', char: 'janitor', text: "아, 변호사님. 그날 선생님이랑 확인했을 땐 정말 아무도 없었어요." },
+  { type: 'talk', char: 'player', text: "확인하기까지 시간이 얼마나 걸렸죠?" },
+  { type: 'talk', char: 'janitor', text: "글쎄요... 5분? 태오 군이 부르러 왔으니..." },
+  { type: 'talk', char: 'player', text: "(5분... 도망갈 시간은 충분하지만, 창문은 막혀있어.)" },
+  { type: 'jump', to: 'investigation_hub_2' },
+  
+  // 부실 조사
+  { id: 'club_room_2', type: 'scene', bg: 'bg-green-900' },
+  { type: 'talk', char: 'club_member', text: "태오 부장은... 요즘 지민이한테 질투가 심했어요." },
+  { type: 'talk', char: 'player', text: "질투요?" },
+  { type: 'talk', char: 'club_member', text: "지민이 그림이 대회에서 상 받았거든요. 태오 부장 작품은 떨어지고..." },
+  { type: 'talk', char: 'player', text: "(동기... 충분하군.)" },
+  { type: 'jump', to: 'investigation_hub_2' },
+  
+  // 태오 추가 조사
+  { id: 'witness_room_2', type: 'scene', bg: 'bg-purple-900' },
+  { type: 'talk', char: 'player', text: "(태오의 최초 진술서를 확인하자...)" },
+  { type: 'talk', char: 'teacher', text: "경찰 조사 때 진술서요? 여기 있습니다." },
+  { type: 'evidence_add', id: 'witness_statement' },
+  { type: 'talk', char: 'player', text: "(여기 분명 '복도로 도망'이라고... 증언이 다르잖아!)" },
+  { type: 'jump', to: 'investigation_hub_2' },
+  
+  { type: 'check_evidence', required: ['stained_glove', 'witness_statement', 'paint_can'], next: 'investigation_2_end' },
+  
+  { id: 'investigation_2_end', type: 'scene', bg: 'bg-slate-800' },
+  { type: 'talk', char: 'player', text: "(좋아... 결정적 증거를 찾았어!)" },
+  
+  // ========================================
+  // [절정] 2차 재판 - 진실 폭로
+  // ========================================
   { type: 'scene', bg: 'bg-slate-900' },
-  { type: 'talk', char: 'prosecutor', text: "훌륭하군, 김변호. 확실히 피고인은 복도로 나가지 않았어.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "그렇다면 지민이는 범인이 아닙니다! 밀실에서 증발할 순 없으니까요." },
-  { type: 'talk', char: 'prosecutor', text: "증발? 훗... '다른 출구'가 있다면 얘기가 다르지.", face: 'normal' },
-  { type: 'evidence_flash', id: 'floor_map' },
-  { type: 'talk', char: 'prosecutor', text: "미술실에는 [뒷문]이 있다. 그곳은 비품 창고와 연결되지.", face: 'normal' },
-  { type: 'talk', char: 'witness', text: "마, 맞아! 사실 지민이는 뒷문으로 도망쳤어! 내가 착각했네!", face: 'sweat' },
-  { type: 'talk', char: 'judge', text: "흐음... 증언을 번복하는군요. 다시 증언하세요." },
-  // ================= [논리 싸움 2: 밀실 트릭 파해] =================
+  { type: 'talk', char: 'narrator', text: "[제2회 공판]" },
+  { type: 'talk', char: 'judge', text: "휴정이 끝났습니다. 심리를 계속하겠습니다." },
+  { type: 'talk', char: 'prosecutor', text: "증인, 수정된 증언을 해주십시오.", face: 'normal' },
+  
+  // 2차 심문
   { type: 'anim', name: 'cross_exam_start' },
   {
     id: 'ce_2',
     type: 'cross_exam',
+    title: '수정된 증언',
     statements: [
       {
-        text: "1. 그래, 기억났어. 지민이는 분명 뒷문을 열고 창고로 들어갔어.",
+        text: "1. 죄송합니다. 충격으로 기억이 혼란스러웠던 것 같습니다.",
         weakness: false,
-        press: "기억이 갑자기 나다니... 이전 증언은 왜 틀렸습니까?",
+        press: "그렇게 큰 충격이었나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "흥, 충격으로 착각했지. 이제 확실해.", face: 'angry' },
-          { type: 'talk', char: 'player', text: "(번복이 잦네... 신뢰가 떨어지지만, 구체적 증거가 필요해.)" }
+          { type: 'talk', char: 'witness', text: "제 작품이 망가진 걸 보니... 머리가 하얘졌죠.", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(과연 그럴까...?)" }
         ]
       },
       {
-        text: "2. 저는 무서워서 따라가진 못하고, 바로 선생님을 부르러 갔죠.",
-        weakness: false,
-        press: "창고 문은 잠겨있지 않았습니까?",
+        text: "2. 지민이는 복도가 아니라 뒷문으로 창고 쪽으로 도망갔습니다.",
+        weakness: true,
+        contradiction: 'witness_statement',
+        failMsg: "증언 번복과 관련된 증거가...",
+        press: "처음엔 분명 복도라고 했는데요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "항상 열려있어. 잠글 이유가 없지.", face: 'normal' },
-          { type: 'talk', char: 'judge', text: "창고 문은 개방 상태였다는 증언입니다." }
+          { type: 'talk', char: 'witness', text: "착각이었다니까요! 이제 정확히 기억났어요!", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(여기서 진술서를 제시!)" }
         ]
       },
       {
-        text: "3. 선생님이 오셔서 창고를 열어봤지만, 안은 텅 비어있었지.",
+        text: "3. 창고엔 창문이 있으니, 그리로 빠져나갔을 겁니다.",
         weakness: false,
-        press: "선생님이 창고를 열었다? 당신은 따라가지 않았다면서요?",
+        press: "창고 창문을 직접 확인했나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "내가 부르고 같이 왔지. 안은 비어있었어.", face: 'sweat' },
-          { type: 'talk', char: 'player', text: "(시간이 좀 지났을 텐데... 탈출할 틈이 있었을지도.)" }
+          { type: 'talk', char: 'witness', text: "뭐... 당연히 있죠.", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(나중에 창문 사진으로 반박하자.)" }
         ]
       },
       {
-        text: "4. 창고에는 창문이 있어! 분명 그 창문을 통해 밖으로 뛰어내린 거야!",
-        weakness: true, // 약점: 창문은 쇠창살로 막혀있음 (storage_photo)
-        contradiction: 'storage_photo',
-        failMsg: "창고 안이 비어있었다면... 창문으로 도망친 게 맞지 않을까?",
-        press: "창문을 통해 뛰어내리다니... 창고 창문 상태를 아십니까?",
+        text: "4. 저는 너무 놀라서 바로 선생님을 부르러 갔습니다.",
+        weakness: false,
+        press: "왜 직접 쫓아가지 않았죠?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "그냥 창문이지. 왜?", face: 'normal' },
-          { type: 'talk', char: 'player', text: "(사진을 보면 쇠창살이... 여기서 증거 제시!)" }
+          { type: 'talk', char: 'witness', text: "무서웠으니까요! 혼자 대응할 수 없었죠.", face: 'sweat' },
+          { type: 'talk', char: 'judge', text: "그럴 수 있겠군요." }
         ]
       }
     ]
-  }
-];
-const PART_2_SUCCESS = [
+  },
+  
+  // 진술서 제시
   { type: 'anim', name: 'objection' },
-  { type: 'talk', char: 'player', text: "이의 있소! 증인은 창문으로 도망쳤다고 했습니까?", size: 'text-3xl', color: 'text-blue-400' },
-  { type: 'talk', char: 'witness', text: "그, 그래! 그거 말고는 설명이 안 되잖아!", face: 'angry' },
-  { type: 'evidence_flash', id: 'storage_photo' },
-  { type: 'talk', char: 'player', text: "이 사진을 보십시오! 창고의 창문은 '쇠창살'로 막혀있습니다!", size: 'text-3xl' },
-  { type: 'talk', char: 'player', text: "사람은커녕 고양이도 빠져나갈 수 없는 구조입니다!", color: 'text-blue-400' },
-  { type: 'talk', char: 'judge', text: "그렇군요. 물리적으로 탈출이 불가능합니다.", face: 'normal' },
-  { type: 'talk', char: 'prosecutor', text: "으윽... 설마 쇠창살이 있을 줄이야...", face: 'normal' },
-  { type: 'talk', char: 'player', text: "자, 정리해봅시다.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "1. 복도로 나가지 않았다. (CCTV 증명)\n2. 창고로 도망칠 수도 없다. (쇠창살 증명)", color: 'text-green-400' },
-  { type: 'talk', char: 'player', text: "그렇다면 결론은 하나뿐입니다!", size: 'text-3xl' },
-  { type: 'talk', char: 'judge', text: "호오... 그게 뭡니까?", face: 'normal' },
-  { type: 'talk', char: 'player', text: "범인은... 미술실 밖으로 나간 적이 없습니다! 아직 안에 숨어있었던 겁니다!", size: 'text-3xl' },
-  { type: 'talk', char: 'witness', text: "히익?! 마, 말도 안 돼!!", face: 'shock' }
-];
-const SCRIPT_PART_3 = [
-  // --- 지난 이야기 & 검사의 반격 ---
-  { type: 'scene', bg: 'bg-slate-900' },
-  { type: 'talk', char: 'prosecutor', text: "김변호, 재미있는 추리로군. 범인이 미술실 안에 숨어있었다고?", face: 'normal' },
-  { type: 'talk', char: 'prosecutor', text: "하지만 경찰이 도착했을 때 미술실엔 '지민'이와 '목격자' 둘뿐이었네.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "(큭... 투명인간일 리는 없고. 그렇다면 목격자의 증언 자체가 거짓말이다!)" },
-  { type: 'talk', char: 'judge', text: "증인, 범행 당시의 상황을 좀 더 구체적으로 묘사해보세요." },
-  // ================= [논리 싸움 3: 결정적 모순] =================
+  { type: 'talk', char: 'player', text: "잠깐만요! 증언이 바뀐 것에 대해 설명이 필요합니다!", size: 'text-3xl', color: 'text-blue-400' },
+  { type: 'evidence_flash', id: 'witness_statement' },
+  { type: 'talk', char: 'player', text: "이것은 사건 당일 경찰 조사 때의 [최초 진술서]입니다!", size: 'text-2xl' },
+  { type: 'talk', char: 'player', text: "여기엔 분명 '복도로 도망갔다'고 적혀있습니다!", color: 'text-blue-400' },
+  { type: 'talk', char: 'witness', text: "그, 그건... 착각이었다니까요!", face: 'sweat' },
+  { type: 'talk', char: 'player', text: "사건 직후의 생생한 기억이 착각이고, 며칠 지난 지금이 정확하다고요?" },
+  { type: 'talk', char: 'prosecutor', text: "으음... 확실히 의심스럽군.", face: 'normal' },
+  { type: 'talk', char: 'judge', text: "증인, 정확히 뭘 봤는지 다시 증언하시오." },
+  
+  // 3차 심문 - 핵심 돌파
   { type: 'anim', name: 'cross_exam_start' },
   {
     id: 'ce_3',
     type: 'cross_exam',
+    title: '재차 증언',
     statements: [
       {
-        text: "1. 제가 들어갔을 때, 지민이는 커터 칼로 붉은 물감통을 찌르고 있었어요!",
+        text: "1. 좋아요, 솔직히 말하겠습니다. 저는... 범행 현장을 직접 보지 못했어요.",
         weakness: false,
-        press: "커터 칼? 미술용 나이프를 말하는 겁니까?",
+        press: "보지 못했다니?!",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "그래, 그 칼. 지민이가 쥐고 있었어.", face: 'normal' },
-          { type: 'talk', char: 'player', text: "(지문이 나왔으니 맞지만, 공용이라...)" }
+          { type: 'talk', char: 'witness', text: "들어갔을 땐 이미 끝나 있었어요!", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(드디어 진실이 나오는군...)" }
         ]
       },
       {
-        text: "2. '펑!' 하는 소리와 함께 물감이 폭탄처럼 터져 나왔죠.",
+        text: "2. 하지만 그림이 망가져있고, 지민이가 나이프를 쥐고 있었던 건 사실입니다!",
         weakness: false,
-        press: "펑 소리? 물감통이 터지는 소리를 들었습니까?",
+        press: "나이프를 '쥐고' 있었나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "직접 봤으니까 소리도 들었지!", face: 'angry' },
-          { type: 'talk', char: 'player', text: "(소리까지... 하지만 모순을 찾아야 해.)" }
+          { type: 'talk', char: 'witness', text: "아... 아니, 옆에 떨어져 있었어요.", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(증언이 계속 바뀌네...)" }
         ]
       },
       {
-        text: "3. 그림은 물론이고, 사방팔방으로 붉은 물감이 튀었습니다.",
-        weakness: false,
-        press: "사방팔방? 그게 어느 정도였습니까?",
-        pressResponse: [
-          { type: 'talk', char: 'witness', text: "반경 2m쯤? 온 방이 붉게 물들었어.", face: 'normal' },
-          { type: 'talk', char: 'judge', text: "현장 사진과 일치합니다." },
-          { type: 'talk', char: 'player', text: "(현장 사진... 여기서 힌트가 될 수 있네.)" }
-        ]
-      },
-      {
-        text: "4. 지민이는 바로 그 앞에서, 온몸으로 물감을 뒤집어쓰며 웃고 있었어요!",
-        weakness: true, // 약점: 지민의 앞치마는 깨끗함 (apron)
+        text: "3. 그리고 지민이는 분명 물감을 온몸에 뒤집어쓴 상태였어요!",
+        weakness: true,
         contradiction: 'apron',
-        failMsg: "물감을 뒤집어썼다면... 현장 사진과는 모순이 없는데?",
-        press: "웃고 있었다? 왜 웃었을까요?",
+        failMsg: "지민의 옷에 관한 증거가...",
+        press: "물감을 뒤집어썼다고요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "질투심에 미쳐서 그런 거지. 소름끼쳤어.", face: 'shock' },
-          { type: 'talk', char: 'player', text: "(지민이 성격과 안 맞아... 거짓말 냄새가 나네.)" }
+          { type: 'talk', char: 'witness', text: "네! 완전 범벅이었다니까요!", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(앞치마 증거 제시!)" }
+        ]
+      },
+      {
+        text: "4. 누가 봐도 범인은 지민이 밖에 없어요!",
+        weakness: false,
+        press: "정말 그렇게 확신하나요?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "당연하죠! 다른 사람은 없었으니까!", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(과연...?)" }
         ]
       }
     ]
-  }
-];
-const PART_3_SUCCESS = [
+  },
+  
+  // 앞치마 증거 제시
   { type: 'anim', name: 'objection' },
-  { type: 'talk', char: 'player', text: "이의 있소! 온몸으로 물감을 뒤집어썼다고요?", size: 'text-3xl', color: 'text-blue-400' },
-  { type: 'talk', char: 'witness', text: "그, 그래! 마치 피의 축제 같았지! 끔찍했어!", face: 'angry' },
+  { type: 'talk', char: 'player', text: "그럴 리가 없습니다!", size: 'text-3xl', color: 'text-red-500' },
   { type: 'evidence_flash', id: 'apron' },
-  { type: 'talk', char: 'player', text: "그렇다면 설명해 보십시오! 이건 사건 직후 경찰이 압수한 [지민의 앞치마]입니다!", size: 'text-3xl' },
-  { type: 'talk', char: 'player', text: "보시다시피, 물감 자국은커녕 먼지 하나 없이 '깨끗'합니다!", color: 'text-green-400' },
+  { type: 'talk', char: 'player', text: "[지민의 앞치마]를 보십시오!", size: 'text-2xl' },
+  { type: 'talk', char: 'player', text: "사건 당시 입고 있던 이 앞치마엔 물감 한 방울 묻어있지 않습니다!", color: 'text-blue-400' },
   { type: 'evidence_flash', id: 'floor_photo' },
-  { type: 'talk', char: 'player', text: "현장 사진을 보면 반경 2m가 물감 범벅입니다. 그 중심에 있던 사람이 깨끗하다뇨?", size: 'text-3xl' },
-  { type: 'talk', char: 'prosecutor', text: "이럴 수가... 물리적으로 불가능해!", face: 'shock' },
-  { type: 'talk', char: 'judge', text: "증인... 당신은 정말로 그 장면을 본 겁니까?", face: 'normal' },
-  { type: 'talk', char: 'witness', text: "아... 아아...", face: 'sweat' },
-  { type: 'talk', char: 'player', text: "당신은 보지 못한 겁니다! 왜냐하면...", face: 'normal' },
-  { type: 'talk', char: 'player', text: "당신이 들어왔을 때, 이미 범행은 끝나 있었으니까요!", size: 'text-3xl' }
-];
-const SCRIPT_PART_4 = [
-  // --- 클라이막스 도입 ---
-  { type: 'scene', bg: 'bg-slate-900' },
-  { type: 'talk', char: 'judge', text: "정리해봅시다. 피고인은 복도로 도망치지도 않았고(CCTV), 물감을 뒤집어쓰지도 않았습니다(앞치마)." },
-  { type: 'talk', char: 'prosecutor', text: "그렇다면... 물감 폭탄이 터질 때, 그 자리에는 '범인' 혼자 있었다는 뜻이군.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "맞습니다. 그리고 그 범인은, 지민이에게 죄를 뒤집어씌우기 위해 거짓말을 하고 있죠!", size: 'text-3xl' },
-  { type: 'talk', char: 'witness', text: "이... 이봐! 내가 범인이라는 증거라도 있어?! 난 물감 근처에도 안 갔어!", face: 'angry' },
-  { type: 'talk', char: 'judge', text: "마지막 기회입니다. 증인은 정말 물감에 손끝 하나 대지 않았습니까?" },
-  // ================= [최후의 논리 싸움] =================
+  { type: 'talk', char: 'player', text: "현장 사진을 보면 반경 2m가 물감 바다입니다!" },
+  { type: 'talk', char: 'player', text: "그 한가운데 있던 사람이 깨끗하다는 건 물리적으로 불가능합니다!", size: 'text-2xl' },
+  { type: 'talk', char: 'prosecutor', text: "...맞는 말이군.", face: 'shock' },
+  { type: 'talk', char: 'witness', text: "그, 그럼... 장갑을 껴서...", face: 'shock' },
+  { type: 'talk', char: 'player', text: "장갑으로 옷까지 보호할 순 없죠!" },
+  { type: 'talk', char: 'witness', text: "크윽...!", face: 'shock' },
+  
+  // ========================================
+  // [절정] 최후의 공방
+  // ========================================
+  { type: 'talk', char: 'judge', text: "증인의 증언에 모순이 너무 많습니다." },
+  { type: 'talk', char: 'player', text: "재판장님, 제게 마지막 추궁 기회를 주십시오!" },
+  { type: 'talk', char: 'judge', text: "허가합니다." },
+  { type: 'talk', char: 'prosecutor', text: "증인... 솔직히 말하는 게 좋을 겁니다.", face: 'normal' },
+  
+  // 최종 심문
   { type: 'anim', name: 'cross_exam_start' },
   {
     id: 'ce_4',
     type: 'cross_exam',
+    title: '최후의 증언',
+    isFinal: true,
     statements: [
       {
-        text: "1. 그래, 인정하지. 지민이가 범행하는 건 못 봤어. 내가 들어갔을 땐 이미 난장판이었으니까.",
+        text: "1. ...좋아요. 인정하죠. 범행 장면은 못 봤어요.",
         weakness: false,
-        press: "인정하다니... 이전 증언은 왜 그랬습니까?",
+        press: "그럼 왜 거짓말을 했죠?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "착각이었어. 이제 솔직히 말하는 거지.", face: 'sweat' },
-          { type: 'talk', char: 'player', text: "(점점 궁지에 몰리네...)" }
+          { type: 'talk', char: 'witness', text: "그냥... 지민이가 범인 같았으니까요!", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(같다고 거짓 증언을...?)" }
         ]
       },
       {
-        text: "2. 난 너무 놀라서 뒷걸음질 쳤고, 바로 선생님을 부르러 갔어.",
-        weakness: false,
-        press: "뒷걸음질? 물감에 안 밟혔습니까?",
-        pressResponse: [
-          { type: 'talk', char: 'witness', text: "조심해서 피했지. 난 깨끗했어.", face: 'normal' },
-          { type: 'talk', char: 'player', text: "(당신은 깨끗했지만, 장갑은...)" }
-        ]
-      },
-      {
-        text: "3. 맹세코 난 그 더러운 붉은 물감 통엔 손가락 하나 댄 적 없다고!",
-        weakness: true, // 약점: 물감을 만진 흔적 (장갑)
+        text: "2. 하지만 전 그 더러운 물감은 손도 안 댔어요!",
+        weakness: true,
         contradiction: 'stained_glove',
-        failMsg: "물감을 만지지 않았다는 주장을 반박해야 해!",
-        press: "맹세코? 증거가 나오면 어떻게 하실 겁니까?",
+        failMsg: "물감과 관련된 결정적 증거가...",
+        press: "정말 손도 안 댔다고요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "흥, 증거 없잖아? 빈말 하지 마.", face: 'angry' },
-          { type: 'talk', char: 'player', text: "(증거가 있지! 여기서 제시.)" }
+          { type: 'talk', char: 'witness', text: "맹세코! 전 깨끗했다니까요!", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(이제다!)" }
         ]
       },
       {
-        text: "4. 범인은 도망쳤겠지! 창문이든 어디든! 난 억울해!",
+        text: "3. 범인은 창고로 도망갔을 거예요. 다른 설명이 없잖아요!",
         weakness: false,
-        press: "아직도 창문 타령입니까? 거긴 막혀있다니까요.",
+        press: "창고 창문은 확인했나요?",
         pressResponse: [
-          { type: 'talk', char: 'witness', text: "그럼 지민이가 투명인간이라도 됐나? 하하!", face: 'shock' },
-          { type: 'talk', char: 'player', text: "(억지 부리네... 진범 냄새가 풀풀.)" }
+          { type: 'talk', char: 'witness', text: "...아니요. 근데 당연히 열려있겠죠?", face: 'normal' },
+          { type: 'evidence_flash', id: 'storage_photo' },
+          { type: 'talk', char: 'player', text: "(창문은 쇠창살로 막혀있어. 나중에 제시하자.)" }
+        ]
+      },
+      {
+        text: "4. 전 피해자일 뿐이에요! 왜 저를 의심하는 거죠?!",
+        weakness: false,
+        press: "피해자라면 왜 증언을 계속 바꾸나요?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "그건... 그건...", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(몰아붙이자!)" }
         ]
       }
     ]
-  }
-];
-const FINALE_SUCCESS = [
+  },
+  
+  // 결정타
   { type: 'anim', name: 'objection' },
-  { type: 'talk', char: 'player', text: "손가락 하나 댄 적 없다고요? 정말 뻔뻔하군요!", size: 'text-4xl font-black text-red-500' },
+  { type: 'talk', char: 'player', text: "손도 안 댔다고요?!", size: 'text-4xl font-black text-red-500' },
+  { type: 'talk', char: 'player', text: "그렇다면 이건 뭐죠?!", size: 'text-3xl' },
   { type: 'evidence_flash', id: 'stained_glove' },
-  { type: 'talk', char: 'player', text: "재판장님! 미술실 쓰레기통 깊숙한 곳에서 발견된 이 [장갑]을 보십시오!", size: 'text-3xl' },
-  { type: 'talk', char: 'judge', text: "저런... 붉은 물감이 아주 흥건하게 묻어있군요.", face: 'normal' },
-  { type: 'talk', char: 'player', text: "그리고 손목 부분엔 선명하게 [태오]라고 이름이 적혀있습니다!", color: 'text-blue-400' },
-  { type: 'talk', char: 'witness', text: "큭... 으윽... 아, 아니야! 그건 내가 버린 게 아니...", face: 'shock' },
-  { type: 'talk', char: 'prosecutor', text: "그만하게. 자네 장갑이 저 꼴이 되려면, 물감통을 직접 쥐고 뿌리는 방법밖엔 없어.", face: 'normal' },
-  { type: 'talk', char: 'witness', text: "으아아아아악!!!!", face: 'breakdown' }, // 멘탈 붕괴
- 
-  // --- 사건의 전말 ---
+  { type: 'talk', char: 'player', text: "미술실 쓰레기통 깊숙한 곳에서 발견된 [붉은 물감 범벅 장갑]!", size: 'text-2xl' },
+  { type: 'talk', char: 'player', text: "그리고 손목 부분엔... [태오]라고 선명히 적혀있습니다!", color: 'text-yellow-400' },
+  { type: 'talk', char: 'judge', text: "뭐라?!" },
+  { type: 'talk', char: 'witness', text: "그, 그건... 예전에 쓰던 거...", face: 'shock' },
+  { type: 'evidence_flash', id: 'paint_can' },
+  { type: 'talk', char: 'player', text: "게다가 [터진 물감통]을 감식한 결과!" },
+  { type: 'talk', char: 'player', text: "외부 충격이 아니라 내부에서 압력을 가해 터뜨린 흔적입니다!", size: 'text-2xl' },
+  { type: 'talk', char: 'prosecutor', text: "그렇다면... 누군가 일부러 터뜨렸다는...", face: 'shock' },
+  { type: 'talk', char: 'player', text: "그렇습니다! 진범은... 바로 당신, 최태오!", size: 'text-3xl', color: 'text-red-500' },
+  { type: 'talk', char: 'witness', text: "으아아아악!", face: 'breakdown' },
+  
+  // ========================================
+  // [결말] 진실 & 엔딩
+  // ========================================
   { type: 'anim', name: 'confetti' },
   { type: 'scene', bg: 'bg-indigo-900' },
-  { type: 'talk', char: 'narrator', text: "[사건의 전말]" },
-  { type: 'talk', char: 'player', text: "최태오는 자신의 그림 실력이 지민이에게 밀리자, 질투심에 범행을 계획했습니다." },
-  { type: 'talk', char: 'player', text: "미리 물감을 뿌려 그림을 망친 뒤, 지민이가 들어오자마자 죄를 뒤집어씌운 거죠." },
-  { type: 'talk', char: 'player', text: "하지만 자신의 [장갑]에 묻은 물감 자국까지는 숨기지 못했습니다." },
+  { type: 'talk', char: 'narrator', text: "[사건의 진상]" },
+  { type: 'talk', char: 'player', text: "최태오, 당신은 지민이에 대한 질투심으로 이 모든 걸 계획했죠." },
+  { type: 'talk', char: 'player', text: "먼저 자신의 그림에 물감통을 터뜨려 훼손한 뒤..." },
+  { type: 'talk', char: 'player', text: "지민이가 들어오길 기다렸다가 범인으로 몰았습니다!" },
+  { type: 'talk', char: 'witness', text: "...맞아요. 다 제가 했어요.", face: 'breakdown' },
+  { type: 'talk', char: 'witness', text: "지민이가 대회에서 상 받는 걸 보니... 너무 화가 나서...", face: 'sweat' },
+  { type: 'talk', char: 'witness', text: "제 그림을 망치고 지민이한테 누명을 씌우면... 복수가 될 거라고 생각했어요.", face: 'sweat' },
+  { type: 'talk', char: 'judge', text: "...어이없는 동기군요." },
+  
   { type: 'scene', bg: 'bg-slate-900' },
-  { type: 'talk', char: 'judge', text: "피고인 이지민에게 [무죄]를 선고합니다. 폐정!", size: 'text-3xl' },
-  { type: 'talk', char: 'narrator', text: "김변호의 화려한 역전승이었다.", color: 'text-yellow-400' },
-  { type: 'end', text: "THE END - 플레이해주셔서 감사합니다!" }
+  { type: 'talk', char: 'judge', text: "피고인 이지민에게 무죄를 선고합니다!", size: 'text-3xl' },
+  { type: 'talk', char: 'judge', text: "최태오는 무고죄 및 기물파손죄로 입건될 것입니다." },
+  { type: 'talk', char: 'jimin', text: "변호사님... 감사합니다...!", face: 'normal' },
+  { type: 'talk', char: 'player', text: "당연한 일을 했을 뿐입니다. 진실은 언제나 밝혀지니까요!" },
+  
+  { type: 'scene', bg: 'bg-black' },
+  { type: 'talk', char: 'narrator', text: "김변호는 또 한 번 역전승을 거두었다.", color: 'text-yellow-400' },
+  { type: 'talk', char: 'narrator', text: "그의 명성은 더욱 높아졌고,", color: 'text-yellow-400' },
+  { type: 'talk', char: 'narrator', text: "오늘도 어딘가에서 억울한 의뢰인이 그를 찾고 있을 것이다...", color: 'text-yellow-400' },
+  
+  { type: 'end', text: "THE END" }
 ];
-// ==================== [통합 FULL_SCRIPT] ====================
-const FULL_SCRIPT = [
-  ...INVESTIGATION_SCRIPT,
-  ...SCRIPT_PART_1,
-  ...PART_1_SUCCESS,
-  ...SCRIPT_PART_2,
-  ...PART_2_SUCCESS,
-  ...SCRIPT_PART_3,
-  ...PART_3_SUCCESS,
-  ...SCRIPT_PART_4,
-  ...FINALE_SUCCESS
-];
-// ==================== [3. 엔진 컴포넌트 확장] ====================
+
+// ==================== [게임 엔진] ====================
 function AceAttorneyGame() {
   const [script] = useState(FULL_SCRIPT);
   const [index, setIndex] = useState(0);
@@ -406,70 +499,93 @@ function AceAttorneyGame() {
   const [pressMode, setPressMode] = useState(false);
   const [pressIndex, setPressIndex] = useState(0);
   const [investigateMode, setInvestigateMode] = useState(false);
-  const [choiceMode, setChoiceMode] = useState(false);
-  const [collectedEvidence, setCollectedEvidence] = useState([]); // 동적 증거 수집
-  const [currentLocation, setCurrentLocation] = useState('art_room');
+  const [locationMenuMode, setLocationMenuMode] = useState(false);
+  const [collectedEvidence, setCollectedEvidence] = useState([]);
+  const [currentBg, setCurrentBg] = useState('bg-black');
   const [hp, setHp] = useState(5);
   const [shake, setShake] = useState(false);
   const [flash, setFlash] = useState(false);
   const [effectText, setEffectText] = useState(null);
   const [ceIndex, setCeIndex] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
-  const [currentBg, setCurrentBg] = useState('bg-slate-800');
+  const [currentLocations, setCurrentLocations] = useState([]);
+
   const currentLine = script[index] || {};
-  const isInvestigation = ['investigate', 'choice', 'evidence_add', 'end_investigation'].includes(currentLine.type) || choiceMode || investigateMode;
+  const isCE = currentLine.type === 'cross_exam';
+  const stmt = isCE ? currentLine.statements?.[ceIndex] : null;
+  const txt = isCE ? stmt?.text : currentLine.text;
+  const char = isCE ? CHARACTERS.witness : (currentLine.char ? CHARACTERS[currentLine.char] : null);
+  
+  const pressTxt = pressMode && stmt?.pressResponse?.[pressIndex]?.text;
+  const pressChar = pressMode && stmt?.pressResponse?.[pressIndex]?.char ? CHARACTERS[stmt.pressResponse[pressIndex].char] : null;
+  const pressFace = pressMode && stmt?.pressResponse?.[pressIndex]?.face;
+
   const handleNext = () => {
-    if (evidenceMode || pressMode || investigateMode || choiceMode || isEnding) return;
+    if (evidenceMode || pressMode || investigateMode || locationMenuMode || isEnding) return;
+    
     if (currentLine.type === 'cross_exam') {
       const nextIdx = ceIndex + 1;
-      setCeIndex(nextIdx >= currentLine.statements.length ? 0 : nextIdx);
-      return;
-    }
-    if (currentLine.type === 'end_investigation') {
-      if (collectedEvidence.length === ALL_EVIDENCE.length) {
-        setIndex(index + 1); // 재판 시작
+      if (nextIdx >= currentLine.statements.length) {
+        setCeIndex(0);
       } else {
-        alert("아직 모든 증거를 모으지 않았습니다!");
+        setCeIndex(nextIdx);
       }
       return;
     }
+
     if (currentLine.type === 'jump') {
       const targetIndex = script.findIndex(l => l.id === currentLine.to);
-      if (targetIndex !== -1) setIndex(targetIndex);
-      else setIndex(index + 1);
+      if (targetIndex !== -1) {
+        setIndex(targetIndex);
+      } else {
+        setIndex(index + 1);
+      }
       return;
     }
-    setIndex(prev => prev + 1);
+
+    if (currentLine.type === 'investigation_menu') {
+      setCurrentLocations(currentLine.locations || []);
+      setLocationMenuMode(true);
+      return;
+    }
+
+    setIndex(prev => Math.min(prev + 1, script.length - 1));
   };
+
   const addEvidence = (id) => {
     const ev = ALL_EVIDENCE.find(e => e.id === id);
     if (ev && !collectedEvidence.some(e => e.id === id)) {
       setCollectedEvidence([...collectedEvidence, ev]);
-      alert(`${ev.name} 획득!`);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 300);
     }
   };
-  const handleChoice = (action) => {
-    const target = script.findIndex(l => l.id === action);
+
+  const handleLocationSelect = (locationId) => {
+    const target = script.findIndex(l => l.id === locationId);
     if (target !== -1) {
       setIndex(target);
+      setLocationMenuMode(false);
     }
-    setChoiceMode(false);
   };
+
   const handleInvestigate = (item) => {
-    if (item.evidence) addEvidence(item.evidence);
-  };
-  const handlePress = () => {
-    if (currentLine.type !== 'cross_exam') return;
-    const stmt = currentLine.statements[ceIndex];
-    if (stmt.pressResponse) {
-      setPressMode(true);
-      setPressIndex(0);
-    } else {
-      alert("이 증언은 추궁할 수 없습니다.");
+    if (item.evidence) {
+      addEvidence(item.evidence);
     }
   };
+
+  const handlePress = () => {
+    if (!isCE || !stmt?.pressResponse) {
+      alert("이 증언은 추궁할 수 없습니다.");
+      return;
+    }
+    setPressMode(true);
+    setPressIndex(0);
+  };
+
   const handlePressNext = () => {
-    const stmt = currentLine.statements[ceIndex];
+    if (!stmt?.pressResponse) return;
     const resp = stmt.pressResponse;
     if (pressIndex < resp.length - 1) {
       setPressIndex(pressIndex + 1);
@@ -478,219 +594,364 @@ function AceAttorneyGame() {
       setPressIndex(0);
     }
   };
+
   const presentEvidence = (id) => {
-    if (currentLine.type !== 'cross_exam') return;
-    const stmt = currentLine.statements[ceIndex];
+    if (!isCE || !stmt) return;
+    
     if (stmt.weakness && stmt.contradiction === id) {
       setEffectText("이의 있소!");
       setShake(true);
       setTimeout(() => {
         setEffectText(null);
         setShake(false);
-        setIndex(index + 1);
         setEvidenceMode(false);
         setCeIndex(0);
+        setIndex(index + 1);
       }, 1500);
     } else {
-      setHp(h => Math.max(0, h - 1));
+      const newHp = Math.max(0, hp - 1);
+      setHp(newHp);
       setShake(true);
       setTimeout(() => setShake(false), 500);
-      alert(stmt.failMsg || "그 증거는 모순이 아닙니다! (패널티)");
-      if (hp <= 1) window.location.reload();
+      alert(stmt.failMsg || "그 증거는 모순이 아닙니다! (패널티 -1HP)");
+      if (newHp <= 0) {
+        alert("HP가 0이 되었습니다. 게임 오버!");
+        window.location.reload();
+      }
     }
   };
+
   useEffect(() => {
-    if (!currentLine) return;
-    switch (currentLine.type) {
-      case 'choice':
-        setChoiceMode(true);
-        break;
-      case 'investigate':
-        setInvestigateMode(true);
-        break;
-      case 'evidence_add':
-        addEvidence(currentLine.id);
-        setIndex(index + 1);
-        break;
-      case 'anim':
-        if (currentLine.name === 'objection') {
-          setEffectText("이의 있소!"); setShake(true);
-          setTimeout(() => { setEffectText(null); setShake(false); setIndex(index + 1); }, 1500);
-        } else if (currentLine.name === 'witness_enter' || currentLine.name === 'cross_exam_start') {
-          setFlash(true); setTimeout(() => { setFlash(false); setIndex(index + 1); }, 500);
-        } else if (currentLine.name === 'confetti') {
-          setEffectText("승 소");
-          setTimeout(() => { setEffectText(null); setIndex(index + 1); }, 2000);
-        } else {
-          setIndex(index + 1);
-        }
-        break;
-      case 'scene':
-        setCurrentBg(currentLine.bg || 'bg-slate-800');
-        if (currentLine.location) setCurrentLocation(currentLine.location);
-        setIndex(index + 1);
-        break;
-      case 'evidence_flash':
-        setFlash(true);
-        setTimeout(() => { setFlash(false); setIndex(index + 1); }, 500);
-        break;
-      case 'end':
-        setIsEnding(true);
-        break;
-      default:
-        break;
+    if (!currentLine || !currentLine.type) return;
+    
+    const type = currentLine.type;
+    
+    if (type === 'scene') {
+      if (currentLine.bg) setCurrentBg(currentLine.bg);
+      setIndex(index + 1);
     }
-  }, [index, currentLine]);
-  const isCE = currentLine.type === 'cross_exam';
-  const stmt = isCE ? currentLine.statements[ceIndex] : null;
-  const txt = isCE ? stmt?.text : currentLine.text;
-  const char = isCE ? CHARACTERS.witness : (currentLine.char ? CHARACTERS[currentLine.char] : null);
-  const isFinal = isCE && currentLine.id === 'ce_4';
-  const pressTxt = pressMode ? currentLine.statements[ceIndex]?.pressResponse[pressIndex]?.text : null;
-  const pressChar = pressMode ? CHARACTERS[currentLine.statements[ceIndex]?.pressResponse[pressIndex]?.char] : null;
-  const pressFace = pressMode ? currentLine.statements[ceIndex]?.pressResponse[pressIndex]?.face : null;
+    else if (type === 'evidence_add') {
+      addEvidence(currentLine.id);
+      setIndex(index + 1);
+    }
+    else if (type === 'check_evidence') {
+      const hasAll = currentLine.required?.every(id => 
+        collectedEvidence.some(e => e.id === id)
+      );
+      if (hasAll && currentLine.next) {
+        const target = script.findIndex(l => l.id === currentLine.next);
+        if (target !== -1) setIndex(target);
+        else setIndex(index + 1);
+      } else if (!hasAll) {
+        alert("아직 필요한 증거를 모두 모으지 못했습니다!");
+      } else {
+        setIndex(index + 1);
+      }
+    }
+    else if (type === 'investigate') {
+      setInvestigateMode(true);
+    }
+    else if (type === 'anim') {
+      const name = currentLine.name;
+      if (name === 'objection') {
+        setEffectText("이의 있소!");
+        setShake(true);
+        setTimeout(() => {
+          setEffectText(null);
+          setShake(false);
+          setIndex(index + 1);
+        }, 1500);
+      } else if (name === 'witness_enter' || name === 'cross_exam_start') {
+        setFlash(true);
+        setTimeout(() => {
+          setFlash(false);
+          setIndex(index + 1);
+        }, 500);
+      } else if (name === 'confetti') {
+        setEffectText("✨ 승소 ✨");
+        setTimeout(() => {
+          setEffectText(null);
+          setIndex(index + 1);
+        }, 2000);
+      } else {
+        setIndex(index + 1);
+      }
+    }
+    else if (type === 'evidence_flash') {
+      setFlash(true);
+      setTimeout(() => {
+        setFlash(false);
+        setIndex(index + 1);
+      }, 500);
+    }
+    else if (type === 'end') {
+      setIsEnding(true);
+    }
+  }, [index, currentLine?.type]);
+
   // 엔딩 화면
   if (isEnding) {
     return (
-      <div className="h-screen w-full bg-black text-white flex flex-col items-center justify-center p-8 animate-in fade-in duration-1000">
-        <Sparkles size={64} className="text-yellow-400 mb-6 animate-spin-slow"/>
-        <h1 className="text-6xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-green-400">
+      <div className="h-screen w-full bg-gradient-to-b from-slate-900 to-black text-white flex flex-col items-center justify-center p-8">
+        <div className="text-8xl mb-8 animate-bounce">⚖️</div>
+        <h1 className="text-6xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 animate-pulse">
           역전의 미술실
         </h1>
-        <h2 className="text-3xl font-bold mb-8 text-white">- 완 결 -</h2>
-        <p className="text-gray-400 mb-12 text-center max-w-md leading-relaxed">
-          지민이의 누명은 벗겨졌고,<br/>진범 최태오는 징계를 받았습니다.<br/>
-          김변호의 명성은 더욱 높아졌습니다.
+        <h2 className="text-4xl font-bold mb-8 text-yellow-400">- 완 결 -</h2>
+        <p className="text-gray-300 mb-12 text-center max-w-2xl text-xl leading-relaxed">
+          지민이의 누명은 벗겨졌고,<br/>
+          진범 최태오는 정당한 처벌을 받았습니다.<br/>
+          김변호 변호사의 명성은 더욱 높아졌습니다.
         </p>
-        <button onClick={() => window.location.reload()} className="px-8 py-3 bg-white text-black font-bold rounded-full hover:scale-105 transition-transform">
+        <button 
+          onClick={() => window.location.reload()} 
+          className="px-12 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white font-black text-xl rounded-full hover:scale-110 hover:shadow-2xl transition-all duration-300"
+        >
           처음부터 다시하기
         </button>
       </div>
     );
   }
+
   return (
-    <div className={`h-screen w-full relative overflow-hidden select-none font-sans text-white ${currentBg} ${shake ? 'animate-shake' : ''}`}>
+    <div className={`h-screen w-full relative overflow-hidden select-none font-sans text-white transition-colors duration-500 ${currentBg} ${shake ? 'animate-shake' : ''}`}>
       <style jsx global>{`
-        @keyframes shake { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(-5px, 5px); } 75% { transform: translate(5px, -5px); } }
-        .animate-shake { animation: shake 0.2s infinite; }
-        .animate-pop { animation: pop 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28); }
-        @keyframes pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
-        @keyframes spin-slow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .animate-spin-slow { animation: spin-slow 3s linear infinite; }
+        @keyframes shake {
+          0%, 100% { transform: translate(0, 0); }
+          25% { transform: translate(-10px, 5px); }
+          50% { transform: translate(10px, -5px); }
+          75% { transform: translate(-5px, -10px); }
+        }
+        .animate-shake { animation: shake 0.3s ease-in-out 2; }
+        @keyframes pulse-scale {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
+        .animate-pulse-scale { animation: pulse-scale 2s ease-in-out infinite; }
       `}</style>
+
       {/* 배경 */}
-      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1589829085413-56de8ae18c73?q=80&w=2000')] bg-cover opacity-30"></div>
-      {/* HP (재판 시만) */}
-      {!isInvestigation && (
-        <div className="absolute top-4 left-4 flex gap-1 bg-black/40 p-2 rounded-full z-50">
-          {[...Array(5)].map((_, i) => <div key={i} className={`w-6 h-6 rounded-full ${i < hp ? 'bg-green-500' : 'bg-red-900'}`}>{i < hp ? '⚖️' : ''}</div>)}
-        </div>
-      )}
-      {/* 컷신 */}
-      {effectText && (
-        <div className="absolute inset-0 z-[100] bg-white flex items-center justify-center">
-          <div className="relative">
-            <div className="absolute inset-0 bg-blue-600 animate-ping opacity-50 rounded-full"></div>
-            <h1 className="text-9xl font-black text-blue-600 tracking-tighter animate-pop drop-shadow-2xl italic border-4 border-black p-4 bg-white transform -rotate-6">{effectText}</h1>
-          </div>
-        </div>
-      )}
-      {/* 캐릭터 */}
-      <div className="absolute bottom-40 w-full flex justify-center pointer-events-none transition-all duration-300 z-10">
-  {(() => {
-    const currentChar = pressMode ? pressChar : char;
-    if (!currentChar) return null;  // 캐릭터 없으면 아무것도 렌더링 안 함 (에러 방지)
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/50 pointer-events-none"></div>
 
-    const face = pressMode ? pressFace : currentLine.face || 'normal';
-    const emoji = currentChar.image || (currentChar.images && currentChar.images[face]) || '❓';  // 안전한 값 추출
-
-    return <div className="text-[250px] filter drop-shadow-2xl">{emoji}</div>;
-  })()}
-</div>
-      {/* 심문 표시 */}
-      {isCE && (
-        <div className="absolute top-20 w-full text-center z-20">
-          <div className={`inline-block ${isFinal ? 'bg-red-700/90 text-white font-bold text-2xl px-12 py-2 border-y-4 border-red-500' : 'bg-green-700/90 text-green-100 font-bold text-2xl px-12 py-2 border-y-4 border-green-500'} shadow-lg animate-pulse`}>
-            ~ {isFinal ? '최후의 증언' : '심 문'} ~ {ceIndex+1}/{currentLine.statements.length}
-          </div>
-        </div>
-      )}
-      {/* 대화창 */}
-      <div onClick={pressMode ? handlePressNext : handleNext} className={`absolute bottom-0 w-full p-4 md:p-8 z-30 transition-all ${evidenceMode || investigateMode || choiceMode ? 'translate-y-full opacity-0' : 'translate-y-0'}`}>
-        <div className={`max-w-4xl mx-auto backdrop-blur-md border-4 rounded-xl p-6 min-h-[180px] shadow-2xl relative hover:bg-black/80 cursor-pointer ${isCE ? (isFinal ? 'bg-red-900/80 border-red-400' : 'bg-green-900/80 border-green-400') : 'bg-black/80 border-white/20'}`}>
-          {(pressMode ? pressChar : char) && <div className="absolute -top-5 left-6 bg-blue-600 text-white font-bold px-6 py-1 rounded-t-lg border-2 border-white/20">{(pressMode ? pressChar : char).name}</div>}
-          <p className={`text-xl md:text-2xl font-medium leading-relaxed ${currentLine.color || (isCE ? (isFinal ? 'text-red-100' : 'text-green-200') : 'text-white')} ${currentLine.size || ''}`}>{pressMode ? pressTxt : txt}</p>
-          {isCE && !pressMode && (
-            <div className="absolute -top-16 right-0 flex gap-4">
-              <button onClick={(e) => { e.stopPropagation(); handlePress(); }} className="bg-blue-500 hover:bg-blue-400 text-white font-black text-xl px-8 py-3 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all">
-                <MessageSquare/> 추궁!
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); setEvidenceMode(true); }} className="bg-yellow-500 hover:bg-yellow-400 text-black font-black text-xl px-8 py-3 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all">
-                <Briefcase/> 증거 제시!
-              </button>
+      {/* HP 표시 (재판 중) */}
+      {!locationMenuMode && !investigateMode && (
+        <div className="absolute top-4 left-4 flex gap-2 bg-black/60 backdrop-blur-sm p-3 rounded-2xl z-50 border-2 border-white/20">
+          <div className="text-sm font-bold mr-2 flex items-center">HP:</div>
+          {[...Array(5)].map((_, i) => (
+            <div 
+              key={i} 
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-lg font-bold transition-all ${i < hp ? 'bg-green-500 scale-100' : 'bg-gray-800 scale-75'}`}
+            >
+              {i < hp ? '⚖️' : ''}
             </div>
-          )}
-          <ChevronRight className="absolute bottom-4 right-4 animate-bounce text-slate-400" size={32}/>
-        </div>
-      </div>
-      {/* 선택지 모드 */}
-      {choiceMode && (
-        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center justify-center">
-          <h2 className="text-3xl font-bold mb-8">선택하세요</h2>
-          <div className="grid grid-cols-1 gap-4 max-w-md w-full">
-            {currentLine.options.map((opt, i) => (
-              <button key={i} onClick={() => handleChoice(opt.action)} className="bg-blue-600 hover:bg-blue-500 p-4 rounded-lg text-xl font-bold">
-                {opt.text}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {/* 조사 모드 */}
-      {investigateMode && (
-        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center justify-center">
-          <h2 className="text-3xl font-bold mb-8 flex items-center gap-2"><Eye /> 조사할 항목</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl w-full">
-            {currentLine.items.map((item, i) => (
-              <button key={i} onClick={() => handleInvestigate(item)} className="bg-slate-800 p-4 rounded-xl border-2 border-slate-600 hover:border-green-400 hover:bg-slate-700 text-left">
-                <div className="text-xl font-bold">{item.name}</div>
-                <div className="text-sm text-gray-400">{item.desc}</div>
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setInvestigateMode(false)} className="mt-8 bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold">닫기</button>
-        </div>
-      )}
-      {/* 장소 이동 버튼 (탐정 파트 시) */}
-      {isInvestigation && (
-        <div className="absolute top-20 right-4 z-20 flex flex-col gap-2">
-          {INVESTIGATION_LOCATIONS.map(loc => (
-            <button key={loc.id} onClick={() => { setCurrentLocation(loc.id); setCurrentBg(loc.bg); const target = script.findIndex(l => l.id === `investigate_${loc.id}`); if (target !== -1) setIndex(target); }} className="bg-purple-600 hover:bg-purple-500 p-2 rounded-lg flex items-center gap-2">
-              <MapPin size={20} /> {loc.name}
-            </button>
           ))}
         </div>
       )}
+
+      {/* 증거 개수 표시 */}
+      <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-2xl z-50 border-2 border-yellow-400/50 flex items-center gap-2">
+        <Briefcase className="text-yellow-400" size={20} />
+        <span className="font-bold text-yellow-400">{collectedEvidence.length} / {ALL_EVIDENCE.length}</span>
+      </div>
+
+      {/* 특수 효과 */}
+      {effectText && (
+        <div className="absolute inset-0 z-[100] bg-white flex items-center justify-center">
+          <div className="relative animate-pulse-scale">
+            <h1 className="text-9xl font-black text-blue-600 drop-shadow-2xl italic border-8 border-black p-8 bg-white transform -rotate-3">
+              {effectText}
+            </h1>
+          </div>
+        </div>
+      )}
+
+      {flash && (
+        <div className="absolute inset-0 z-[90] bg-white animate-ping opacity-50 pointer-events-none"></div>
+      )}
+
+      {/* 캐릭터 표시 */}
+      <div className="absolute bottom-48 w-full flex justify-center pointer-events-none z-10">
+        {(pressMode ? pressChar : char) && (
+          <div className="text-[280px] filter drop-shadow-2xl transition-all duration-300">
+            {(() => {
+              const character = pressMode ? pressChar : char;
+              const face = pressMode ? pressFace : currentLine.face;
+              if (character.images) {
+                return character.images[face] || character.images.normal;
+              }
+              return character.image;
+            })()}
+          </div>
+        )}
+      </div>
+
+      {/* 심문 상태 표시 */}
+      {isCE && (
+        <div className="absolute top-24 w-full text-center z-20">
+          <div className={`inline-block px-12 py-3 border-y-4 shadow-2xl font-black text-3xl ${
+            currentLine.isFinal 
+              ? 'bg-red-700/95 text-white border-red-400 animate-pulse' 
+              : 'bg-blue-700/95 text-blue-100 border-blue-400'
+          }`}>
+            {currentLine.isFinal ? '⚠️ 최후의 증언 ⚠️' : `📋 ${currentLine.title || '심문'}`} ({ceIndex + 1}/{currentLine.statements?.length || 0})
+          </div>
+        </div>
+      )}
+
+      {/* 대화창 */}
+      <div 
+        onClick={pressMode ? handlePressNext : handleNext}
+        className={`absolute bottom-0 w-full p-6 z-30 transition-all duration-300 ${
+          evidenceMode || investigateMode || locationMenuMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'
+        }`}
+      >
+        <div className={`max-w-5xl mx-auto backdrop-blur-xl border-4 rounded-2xl p-8 min-h-[200px] shadow-2xl relative cursor-pointer hover:border-white/40 transition-all ${
+          isCE 
+            ? (currentLine.isFinal ? 'bg-red-900/90 border-red-400' : 'bg-blue-900/90 border-blue-400')
+            : 'bg-black/85 border-white/30'
+        }`}>
+          {(pressMode ? pressChar : char) && (
+            <div className="absolute -top-6 left-8 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-black px-8 py-2 rounded-t-xl border-2 border-white/30 shadow-lg text-lg">
+              {(pressMode ? pressChar : char).name}
+            </div>
+          )}
+          
+          <p className={`text-2xl font-medium leading-relaxed ${
+            currentLine.color || (isCE ? (currentLine.isFinal ? 'text-red-100' : 'text-blue-100') : 'text-white')
+          } ${currentLine.size || ''}`}>
+            {pressMode ? pressTxt : txt}
+          </p>
+
+          {/* 심문 버튼 */}
+          {isCE && !pressMode && (
+            <div className="absolute -top-20 right-0 flex gap-4">
+              <button 
+                onClick={(e) => { e.stopPropagation(); handlePress(); }}
+                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white font-black text-xl px-10 py-4 rounded-full shadow-lg flex items-center gap-3 transform hover:scale-110 transition-all"
+              >
+                <MessageSquare size={24}/> 추궁!
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setEvidenceMode(true); }}
+                className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 text-white font-black text-xl px-10 py-4 rounded-full shadow-lg flex items-center gap-3 transform hover:scale-110 transition-all"
+              >
+                <Briefcase size={24}/> 증거!
+              </button>
+            </div>
+          )}
+
+          <ChevronRight className="absolute bottom-6 right-6 animate-bounce text-white/60" size={36}/>
+        </div>
+      </div>
+
+      {/* 장소 선택 메뉴 */}
+      {locationMenuMode && (
+        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center justify-center">
+          <h2 className="text-4xl font-black mb-12 text-white flex items-center gap-3">
+            <MapPin size={40} className="text-blue-400"/> 조사할 장소를 선택하세요
+          </h2>
+          <div className="grid grid-cols-2 gap-6 max-w-4xl w-full">
+            {currentLocations.map(locId => {
+              const locData = {
+                art_room_1: { name: '🎨 미술실', desc: '사건 현장', color: 'from-indigo-600 to-purple-600' },
+                art_room_2: { name: '🎨 미술실 재조사', desc: '더 자세히...', color: 'from-indigo-600 to-purple-600' },
+                hallway_1: { name: '🚶 복도', desc: 'CCTV 확인', color: 'from-gray-600 to-gray-700' },
+                storage_1: { name: '📦 창고', desc: '뒷문 연결', color: 'from-amber-700 to-amber-800' },
+                storage_2: { name: '📦 창고 재조사', desc: '흔적 찾기', color: 'from-amber-700 to-amber-800' },
+                office_1: { name: '🏫 교무실', desc: '자료 수집', color: 'from-green-700 to-green-800' },
+                club_room_2: { name: '👥 부실', desc: '부원 대화', color: 'from-teal-700 to-teal-800' },
+                witness_room_2: { name: '📋 진술 확인', desc: '태오 조사', color: 'from-purple-700 to-purple-800' }
+              }[locId] || { name: locId, desc: '', color: 'from-gray-600 to-gray-700' };
+
+              return (
+                <button
+                  key={locId}
+                  onClick={() => handleLocationSelect(locId)}
+                  className={`bg-gradient-to-br ${locData.color} p-6 rounded-2xl border-4 border-white/20 hover:border-white hover:scale-105 transition-all shadow-xl`}
+                >
+                  <div className="text-3xl font-black mb-2">{locData.name}</div>
+                  <div className="text-sm text-white/80">{locData.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 조사 모드 */}
+      {investigateMode && (
+        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center justify-center">
+          <h2 className="text-4xl font-black mb-12 flex items-center gap-3 text-white">
+            <Eye size={40} className="text-green-400"/> 조사할 항목을 선택하세요
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl w-full mb-8">
+            {currentLine.items?.map((item, i) => (
+              <button
+                key={i}
+                onClick={() => handleInvestigate(item)}
+                className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border-4 border-slate-600 hover:border-green-400 hover:scale-105 transition-all shadow-xl text-left"
+              >
+                <div className="text-2xl font-black text-green-400 mb-2">{item.name}</div>
+                <div className="text-base text-gray-300">{item.desc}</div>
+                {item.evidence && (
+                  <div className="mt-3 text-xs text-yellow-400 font-bold">
+                    💡 증거를 획득할 수 있습니다
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+          <button 
+            onClick={() => setInvestigateMode(false)}
+            className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 px-8 py-3 rounded-xl font-black text-xl shadow-lg"
+          >
+            조사 마치기
+          </button>
+        </div>
+      )}
+
       {/* 증거창 */}
       {evidenceMode && (
-        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center animate-in slide-in-from-bottom-20">
-          <div className="w-full max-w-4xl">
-            <div className="flex justify-between items-center mb-8 border-b border-gray-600 pb-4">
-              <h2 className="text-3xl font-black text-white flex items-center gap-2"><Briefcase/> 법정 기록</h2>
-              <button onClick={() => setEvidenceMode(false)} className="bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold">닫기</button>
+        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center overflow-y-auto">
+          <div className="w-full max-w-6xl">
+            <div className="flex justify-between items-center mb-8 pb-4 border-b-2 border-yellow-400/50">
+              <h2 className="text-4xl font-black text-yellow-400 flex items-center gap-3">
+                <Briefcase size={40}/> 법정 기록
+              </h2>
+              <button 
+                onClick={() => setEvidenceMode(false)}
+                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 px-8 py-3 rounded-xl font-black text-xl"
+              >
+                닫기
+              </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {collectedEvidence.map(item => (
-                <button key={item.id} onClick={() => presentEvidence(item.id)} className="bg-slate-800 p-4 rounded-xl border-2 border-slate-600 flex items-center gap-4 hover:border-yellow-400 hover:bg-slate-700 group text-left transition-all">
-                  <div className="text-5xl bg-black/30 p-2 rounded-lg">{item.icon}</div>
-                  <div>
-                    <div className="text-xl font-bold text-yellow-400 group-hover:text-yellow-300">{item.name}</div>
-                    <div className="text-sm text-gray-400">{item.desc}</div>
-                    <div className="text-xs text-red-400 font-bold mt-2 opacity-0 group-hover:opacity-100 transition-opacity">👉 제시하기 (CLICK)</div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            
+            {collectedEvidence.length === 0 ? (
+              <div className="text-center text-gray-400 text-2xl py-20">
+                아직 수집한 증거가 없습니다.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {collectedEvidence.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => presentEvidence(item.id)}
+                    className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border-4 border-slate-600 flex items-start gap-6 hover:border-yellow-400 hover:scale-105 group text-left transition-all shadow-xl"
+                  >
+                    <div className="text-6xl bg-black/40 p-4 rounded-xl">{item.icon}</div>
+                    <div className="flex-1">
+                      <div className="text-2xl font-black text-yellow-400 group-hover:text-yellow-300 mb-2">
+                        {item.name}
+                      </div>
+                      <div className="text-base text-gray-300 leading-relaxed">{item.desc}</div>
+                      <div className="text-sm text-red-400 font-bold mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        👉 클릭하여 제시하기
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
