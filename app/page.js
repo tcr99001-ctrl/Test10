@@ -28,7 +28,7 @@ const ALL_EVIDENCE = [
 const INVESTIGATION_LOCATIONS = [
   { id: 'art_room', name: '미술실', bg: 'bg-indigo-900', desc: '사건 현장. 물감 냄새가 진동한다.' },
   { id: 'hallway', name: '복도', bg: 'bg-gray-700', desc: '미술실 앞 복도. CCTV가 설치되어 있다.' },
-  { id: 'storage', name: '창고', bg: 'bg-brown-800', desc: '미술실 뒷문으로 연결된 비품 창고.' },
+  { id: 'storage', name: '창고', bg: 'bg-amber-800', desc: '미술실 뒷문으로 연결된 비품 창고.' },
   { id: 'club_room', name: '부실', bg: 'bg-green-900', desc: '미술부 활동실. 부원들이 모이는 곳.' }
 ];
 const INVESTIGATION_SCRIPT = [
@@ -686,4 +686,4 @@ export default function AceAttorneyGame() {
       )}
     </div>
   );
-        }
+      }
