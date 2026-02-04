@@ -1,6 +1,7 @@
+```javascript
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
-import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles } from 'lucide-react';
+import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles, MessageSquare } from 'lucide-react';
 // ==================== [1. 통합 캐릭터 및 증거 설정] ====================
 const CHARACTERS = {
   judge: { name: "재판장", image: "👨‍⚖️" },
@@ -49,22 +50,42 @@ const SCRIPT_PART_1 = [
     statements: [
       {
         text: "1. 그날 저는 4시에 미술실 뒷정리를 하러 갔습니다.",
-        weakness: false
+        weakness: false,
+        press: "미술실 뒷정리를 왜 당신이 했습니까? 부장이라도 평소엔 부원들이 하지 않나요?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "흥, 부원들이 게을러서 내가 직접 나섰지. 문제라도?", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(음... 별로 중요한 정보는 아니네.)" }
+        ]
       },
       {
         text: "2. 문을 열자마자 지민이가 그림을 찢고 있는 걸 봤죠!",
         weakness: false,
-        press: "어느 문으로 들어갔습니까? 앞문? 뒷문?"
+        press: "어느 문으로 들어갔습니까? 앞문? 뒷문?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "당연히 앞문이지. 뒷문은 창고 쪽이잖아.", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(앞문이라... 도면을 확인해보자.)" },
+          { type: 'talk', char: 'judge', text: "추궁 결과, 새로운 정보가 나왔군요." }
+        ]
       },
       {
         text: "3. 너무 놀라서 소리를 질렀고, 지민이는 저를 보고 도망쳤습니다.",
-        weakness: false
+        weakness: false,
+        press: "소리를 질렀다면 누가 들었을 텐데, 다른 증인이 없습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "그 시간엔 다들 집에 갔어. 나 혼자였지.", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(혼자였다... 의심스럽지만, 증거가 없네.)" }
+        ]
       },
       {
         text: "4. 복도로 뛰어가는 뒷모습을 제 두 눈으로 똑똑히 봤다니까요!",
         weakness: true, // 약점: 복도 CCTV와 모순
         contradiction: 'cctv',
-        failMsg: "복도로 도망쳤다면... 그 증거와는 관련이 없어 보이는데?"
+        failMsg: "복도로 도망쳤다면... 그 증거와는 관련이 없어 보이는데?",
+        press: "뒷모습을 봤다면 얼굴은 못 봤다는 뜻인가요?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "뭐, 등짝이 지민이 스타일이었어. 틀림없다고!", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(등짝...? 확실하지 않네. 하지만 더 추궁할 건 없어.)" }
+        ]
       }
     ]
   }
@@ -99,22 +120,41 @@ const SCRIPT_PART_2 = [
     statements: [
       {
         text: "1. 그래, 기억났어. 지민이는 분명 뒷문을 열고 창고로 들어갔어.",
-        weakness: false
+        weakness: false,
+        press: "기억이 갑자기 나다니... 이전 증언은 왜 틀렸습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "흥, 충격으로 착각했지. 이제 확실해.", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(번복이 잦네... 신뢰가 떨어지지만, 구체적 증거가 필요해.)" }
+        ]
       },
       {
         text: "2. 저는 무서워서 따라가진 못하고, 바로 선생님을 부르러 갔죠.",
         weakness: false,
-        press: "창고 문은 잠겨있지 않았습니까?"
+        press: "창고 문은 잠겨있지 않았습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "항상 열려있어. 잠글 이유가 없지.", face: 'normal' },
+          { type: 'talk', char: 'judge', text: "창고 문은 개방 상태였다는 증언입니다." }
+        ]
       },
       {
         text: "3. 선생님이 오셔서 창고를 열어봤지만, 안은 텅 비어있었지.",
-        weakness: false
+        weakness: false,
+        press: "선생님이 창고를 열었다? 당신은 따라가지 않았다면서요?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "내가 부르고 같이 왔지. 안은 비어있었어.", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(시간이 좀 지났을 텐데... 탈출할 틈이 있었을지도.)" }
+        ]
       },
       {
         text: "4. 창고에는 창문이 있어! 분명 그 창문을 통해 밖으로 뛰어내린 거야!",
         weakness: true, // 약점: 창문은 쇠창살로 막혀있음 (storage_photo)
         contradiction: 'storage_photo',
-        failMsg: "창고 안이 비어있었다면... 창문으로 도망친 게 맞지 않을까?"
+        failMsg: "창고 안이 비어있었다면... 창문으로 도망친 게 맞지 않을까?",
+        press: "창문을 통해 뛰어내리다니... 창고 창문 상태를 아십니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "그냥 창문이지. 왜?", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(사진을 보면 쇠창살이... 여기서 증거 제시!)" }
+        ]
       }
     ]
   }
@@ -150,22 +190,42 @@ const SCRIPT_PART_3 = [
     statements: [
       {
         text: "1. 제가 들어갔을 때, 지민이는 커터 칼로 붉은 물감통을 찌르고 있었어요!",
-        weakness: false
+        weakness: false,
+        press: "커터 칼? 미술용 나이프를 말하는 겁니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "그래, 그 칼. 지민이가 쥐고 있었어.", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(지문이 나왔으니 맞지만, 공용이라...)" }
+        ]
       },
       {
         text: "2. '펑!' 하는 소리와 함께 물감이 폭탄처럼 터져 나왔죠.",
-        weakness: false
+        weakness: false,
+        press: "펑 소리? 물감통이 터지는 소리를 들었습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "직접 봤으니까 소리도 들었지!", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(소리까지... 하지만 모순을 찾아야 해.)" }
+        ]
       },
       {
         text: "3. 그림은 물론이고, 사방팔방으로 붉은 물감이 튀었습니다.",
         weakness: false,
-        press: "사방팔방? 그게 어느 정도였습니까?"
+        press: "사방팔방? 그게 어느 정도였습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "반경 2m쯤? 온 방이 붉게 물들었어.", face: 'normal' },
+          { type: 'talk', char: 'judge', text: "현장 사진과 일치합니다." },
+          { type: 'talk', char: 'player', text: "(현장 사진... 여기서 힌트가 될 수 있네.)" }
+        ]
       },
       {
         text: "4. 지민이는 바로 그 앞에서, 온몸으로 물감을 뒤집어쓰며 웃고 있었어요!",
         weakness: true, // 약점: 지민의 앞치마는 깨끗함 (apron)
         contradiction: 'apron',
-        failMsg: "물감을 뒤집어썼다면... 현장 사진과는 모순이 없는데?"
+        failMsg: "물감을 뒤집어썼다면... 현장 사진과는 모순이 없는데?",
+        press: "웃고 있었다? 왜 웃었을까요?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "질투심에 미쳐서 그런 거지. 소름끼쳤어.", face: 'shock' },
+          { type: 'talk', char: 'player', text: "(지민이 성격과 안 맞아... 거짓말 냄새가 나네.)" }
+        ]
       }
     ]
   }
@@ -201,22 +261,41 @@ const SCRIPT_PART_4 = [
     statements: [
       {
         text: "1. 그래, 인정하지. 지민이가 범행하는 건 못 봤어. 내가 들어갔을 땐 이미 난장판이었으니까.",
-        weakness: false
+        weakness: false,
+        press: "인정하다니... 이전 증언은 왜 그랬습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "착각이었어. 이제 솔직히 말하는 거지.", face: 'sweat' },
+          { type: 'talk', char: 'player', text: "(점점 궁지에 몰리네...)" }
+        ]
       },
       {
         text: "2. 난 너무 놀라서 뒷걸음질 쳤고, 바로 선생님을 부르러 갔어.",
-        weakness: false
+        weakness: false,
+        press: "뒷걸음질? 물감에 안 밟혔습니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "조심해서 피했지. 난 깨끗했어.", face: 'normal' },
+          { type: 'talk', char: 'player', text: "(당신은 깨끗했지만, 장갑은...)" }
+        ]
       },
       {
         text: "3. 맹세코 난 그 더러운 붉은 물감 통엔 손가락 하나 댄 적 없다고!",
         weakness: true, // 약점: 물감을 만진 흔적 (장갑)
         contradiction: 'stained_glove',
-        failMsg: "물감을 만지지 않았다는 주장을 반박해야 해!"
+        failMsg: "물감을 만지지 않았다는 주장을 반박해야 해!",
+        press: "맹세코? 증거가 나오면 어떻게 하실 겁니까?",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "흥, 증거 없잖아? 빈말 하지 마.", face: 'angry' },
+          { type: 'talk', char: 'player', text: "(증거가 있지! 여기서 제시.)" }
+        ]
       },
       {
         text: "4. 범인은 도망쳤겠지! 창문이든 어디든! 난 억울해!",
         weakness: false,
-        press: "아직도 창문 타령입니까? 거긴 막혀있다니까요."
+        press: "아직도 창문 타령입니까? 거긴 막혀있다니까요.",
+        pressResponse: [
+          { type: 'talk', char: 'witness', text: "그럼 지민이가 투명인간이라도 됐나? 하하!", face: 'shock' },
+          { type: 'talk', char: 'player', text: "(억지 부리네... 진범 냄새가 풀풀.)" }
+        ]
       }
     ]
   }
@@ -245,13 +324,13 @@ const FINALE_SUCCESS = [
   { type: 'end', text: "THE END - 플레이해주셔서 감사합니다!" }
 ];
 const FULL_SCRIPT = [
-  ...SCRIPT_PART_1.slice(0, -2), // PART1 인트로 ~ cross_exam_start + ce_1 (guide & jump 제거)
+  ...SCRIPT_PART_1,
   ...PART_1_SUCCESS,
-  ...SCRIPT_PART_2.slice(0, -2), // PART2 ~ ce_2 (guide & jump 제거)
+  ...SCRIPT_PART_2,
   ...PART_2_SUCCESS,
-  ...SCRIPT_PART_3.slice(0, -2), // PART3 ~ ce_3 (guide & jump 제거)
+  ...SCRIPT_PART_3,
   ...PART_3_SUCCESS,
-  ...SCRIPT_PART_4.slice(0, -2), // PART4 ~ ce_4 (guide & jump 제거)
+  ...SCRIPT_PART_4,
   ...FINALE_SUCCESS
 ];
 // ==================== [3. 엔진 컴포넌트] ====================
@@ -259,6 +338,8 @@ export default function AceAttorneyGame() {
   const [script] = useState(FULL_SCRIPT);
   const [index, setIndex] = useState(0);
   const [evidenceMode, setEvidenceMode] = useState(false);
+  const [pressMode, setPressMode] = useState(false);
+  const [pressIndex, setPressIndex] = useState(0);
   const [hp, setHp] = useState(5);
   const [shake, setShake] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -268,18 +349,32 @@ export default function AceAttorneyGame() {
   const [currentBg, setCurrentBg] = useState('bg-slate-800');
   const currentLine = script[index];
   const handleNext = () => {
-    if (evidenceMode || isEnding) return;
+    if (evidenceMode || pressMode || isEnding) return;
     if (currentLine?.type === 'cross_exam') {
       const nextIdx = ceIndex + 1;
       setCeIndex(nextIdx >= currentLine.statements.length ? 0 : nextIdx);
       return;
     }
-    if (currentLine?.type === 'jump') {
-      setIndex(script.findIndex(l => l.id === currentLine.to));
-    } else if (currentLine?.type === 'end') {
-      setIsEnding(true);
+    setIndex(prev => prev + 1);
+  };
+  const handlePress = () => {
+    if (currentLine?.type !== 'cross_exam') return;
+    const stmt = currentLine.statements[ceIndex];
+    if (stmt.press) {
+      setPressMode(true);
+      setPressIndex(0);
     } else {
-      setIndex(prev => prev + 1);
+      alert("이 증언은 추궁할 수 없습니다.");
+    }
+  };
+  const handlePressNext = () => {
+    const stmt = currentLine.statements[ceIndex];
+    const resp = stmt.pressResponse;
+    if (pressIndex < resp.length - 1) {
+      setPressIndex(pressIndex + 1);
+    } else {
+      setPressMode(false);
+      setPressIndex(0);
     }
   };
   const presentEvidence = (id) => {
@@ -310,32 +405,38 @@ export default function AceAttorneyGame() {
       case 'anim':
         if (currentLine.name === 'objection') {
           setEffectText("이의 있소!"); setShake(true);
-          setTimeout(() => { setEffectText(null); setShake(false); handleNext(); }, 1500);
+          setTimeout(() => { setEffectText(null); setShake(false); setIndex(index + 1); }, 1500);
         } else if (currentLine.name === 'witness_enter' || currentLine.name === 'cross_exam_start') {
-          setFlash(true); setTimeout(() => { setFlash(false); handleNext(); }, 500);
+          setFlash(true); setTimeout(() => { setFlash(false); setIndex(index + 1); }, 500);
         } else if (currentLine.name === 'confetti') {
           setEffectText("승 소");
-          setTimeout(() => { setEffectText(null); handleNext(); }, 2000);
+          setTimeout(() => { setEffectText(null); setIndex(index + 1); }, 2000);
         } else {
-          handleNext();
+          setIndex(index + 1);
         }
         break;
       case 'scene':
         setCurrentBg(currentLine.bg);
-        handleNext();
+        setIndex(index + 1);
         break;
       case 'evidence_flash':
         setFlash(true);
-        setTimeout(() => { setFlash(false); handleNext(); }, 500);
+        setTimeout(() => { setFlash(false); setIndex(index + 1); }, 500);
+        break;
+      case 'end':
+        setIsEnding(true);
         break;
       default:
         break;
     }
-  }, [index, script]);
+  }, [index]);
   const isCE = currentLine?.type === 'cross_exam';
-  const txt = isCE ? currentLine.statements[ceIndex].text : currentLine?.text;
+  const stmt = isCE ? currentLine.statements[ceIndex] : null;
+  const txt = isCE ? stmt.text : currentLine?.text;
   const char = isCE ? CHARACTERS.witness : (currentLine?.char ? CHARACTERS[currentLine.char] : null);
   const isFinal = isCE && currentLine.id === 'ce_4';
+  const pressTxt = pressMode ? currentLine.statements[ceIndex].pressResponse[pressIndex].text : null;
+  const pressChar = pressMode ? CHARACTERS[currentLine.statements[ceIndex].pressResponse[pressIndex].char] : null;
   // 엔딩 화면
   if (isEnding) {
     return (
@@ -346,7 +447,7 @@ export default function AceAttorneyGame() {
         </h1>
         <h2 className="text-3xl font-bold mb-8 text-white">- 완 결 -</h2>
         <p className="text-gray-400 mb-12 text-center max-w-md leading-relaxed">
-          지호의 누명은 벗겨졌고,<br/>진범 최태오는 징계를 받았습니다.<br/>
+          지민이의 누명은 벗겨졌고,<br/>진범 최태오는 징계를 받았습니다.<br/>
           김변호의 명성은 더욱 높아졌습니다.
         </p>
         <button onClick={() => window.location.reload()} className="px-8 py-3 bg-white text-black font-bold rounded-full hover:scale-105 transition-transform">
@@ -382,7 +483,7 @@ export default function AceAttorneyGame() {
       )}
       {/* 캐릭터 */}
       <div className="absolute bottom-40 w-full flex justify-center pointer-events-none transition-all duration-300 z-10">
-        {char && char.image && <div className="text-[250px] filter drop-shadow-2xl">{char.image || char.images[currentLine.face||'normal']}</div>}
+        {char && char.image && <div className="text-[250px] filter drop-shadow-2xl">{char.images ? char.images[char.face || 'normal'] : char.image}</div>}
       </div>
       {/* 심문 표시 */}
       {isCE && (
@@ -393,12 +494,15 @@ export default function AceAttorneyGame() {
         </div>
       )}
       {/* 대화창 */}
-      <div onClick={handleNext} className={`absolute bottom-0 w-full p-4 md:p-8 z-30 transition-all ${evidenceMode ? 'translate-y-full opacity-0' : 'translate-y-0'}`}>
+      <div onClick={pressMode ? handlePressNext : handleNext} className={`absolute bottom-0 w-full p-4 md:p-8 z-30 transition-all ${evidenceMode ? 'translate-y-full opacity-0' : 'translate-y-0'}`}>
         <div className={`max-w-4xl mx-auto backdrop-blur-md border-4 rounded-xl p-6 min-h-[180px] shadow-2xl relative hover:bg-black/80 cursor-pointer ${isCE ? (isFinal ? 'bg-red-900/80 border-red-400' : 'bg-green-900/80 border-green-400') : 'bg-black/80 border-white/20'}`}>
-          {char && <div className="absolute -top-5 left-6 bg-blue-600 text-white font-bold px-6 py-1 rounded-t-lg border-2 border-white/20">{char.name}</div>}
-          <p className={`text-xl md:text-2xl font-medium leading-relaxed ${currentLine.color || (isCE ? (isFinal ? 'text-red-100' : 'text-green-200') : 'text-white')} ${currentLine.size || ''}`}>{txt}</p>
-          {isCE && (
-            <div className="absolute -top-16 right-0">
+          { (pressMode ? pressChar : char) && <div className="absolute -top-5 left-6 bg-blue-600 text-white font-bold px-6 py-1 rounded-t-lg border-2 border-white/20">{(pressMode ? pressChar : char).name}</div>}
+          <p className={`text-xl md:text-2xl font-medium leading-relaxed ${currentLine.color || (isCE ? (isFinal ? 'text-red-100' : 'text-green-200') : 'text-white')} ${currentLine.size || ''}`}>{pressMode ? pressTxt : txt}</p>
+          {isCE && !pressMode && (
+            <div className="absolute -top-16 right-0 flex gap-4">
+              <button onClick={(e) => { e.stopPropagation(); handlePress(); }} className="bg-blue-500 hover:bg-blue-400 text-white font-black text-xl px-8 py-3 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all">
+                <MessageSquare/> 추궁!
+              </button>
               <button onClick={(e) => { e.stopPropagation(); setEvidenceMode(true); }} className="bg-yellow-500 hover:bg-yellow-400 text-black font-black text-xl px-8 py-3 rounded-full shadow-lg flex items-center gap-2 transform hover:scale-105 transition-all">
                 <Briefcase/> 증거 제시!
               </button>
@@ -433,3 +537,4 @@ export default function AceAttorneyGame() {
     </div>
   );
 }
+```
