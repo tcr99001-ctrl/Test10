@@ -686,4 +686,4 @@ export default function AceAttorneyGame() {
       )}
     </div>
   );
-      }
+        }
