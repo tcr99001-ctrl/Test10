@@ -2,389 +2,329 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Play, Save, RotateCcw, Menu, X, ChevronRight, 
-  History, Settings, SkipForward, Volume2 
+  Play, RotateCcw, Menu, ChevronRight, 
+  Briefcase, Search, AlertTriangle, Gavel, Hand
 } from 'lucide-react';
 
-// ==================== [1. 게임 리소스 설정] ====================
+// ==================== [1. 게임 리소스] ====================
 
-// 🎨 캐릭터 데이터 (이모지로 대체했지만, 실제 이미지 URL로 교체 가능)
 const CHARACTERS = {
-  narrator: { name: "", color: "text-gray-300", image: null },
-  jiho: { 
-    name: "한지호", 
-    color: "text-blue-400", 
-    images: {
-      normal: "👦", 
-      smile: "👦✨", 
-      shock: "👦💦", 
-      angry: "👦💢"
-    }
+  narrator: { name: "", image: null },
+  judge: { 
+    name: "재판장", 
+    color: "text-yellow-600",
+    image: "👨‍⚖️",
+    desc: "엄격하지만 푸딩을 좋아함"
   },
-  yuna: { 
-    name: "김유나", 
-    color: "text-pink-400", 
-    images: {
-      normal: "👩", 
-      smile: "👩💖", 
-      shy: "👩///", 
-      angry: "👩🔥"
-    }
+  prosecutor: { 
+    name: "나검사", 
+    color: "text-red-500",
+    image: "🤵‍♂️",
+    desc: "냉철한 엘리트 검사"
   },
-  detective: {
-    name: "강형사",
-    color: "text-yellow-500",
+  player: { 
+    name: "김변호", 
+    color: "text-blue-500",
+    image: "👉", // 이의있소 포즈
+    desc: "역전의 발상천재"
+  },
+  witness: { 
+    name: "박민수", 
+    color: "text-green-600",
     images: {
-      normal: "🕵️‍♂️",
-      serious: "🕵️‍♂️⚖️"
+      normal: "🙎‍♂️",
+      sweat: "🙎‍♂️💦",
+      shock: "🙎‍♂️⚡",
+      breakdown: "😱"
     }
   }
 };
 
-// 🖼️ 배경 이미지 (CSS 그라데이션 or URL)
-const BACKGROUNDS = {
-  classroom: "bg-slate-800", // 교실
-  corridor: "bg-slate-900",  // 복도
-  rooftop: "bg-indigo-900",  // 옥상
-  black: "bg-black"          // 암전
-};
+const EVIDENCE = [
+  { id: 'pudding_cup', name: '빈 푸딩 컵', icon: '🗑️', desc: '교장실 쓰레기통에서 발견됨. 뚜껑이 열려있다.' },
+  { id: 'spoon', name: '더러운 숟가락', icon: '🥄', desc: '용의자(지호)의 주머니에 있던 숟가락. 초코가 묻어있다.' },
+  { id: 'receipt', name: '편의점 영수증', icon: '🧾', desc: '사건 발생 시간(12:30)에 지호가 매점에 있었다는 증거.' },
+  { id: 'photo', name: '현장 사진', icon: '📸', desc: '냉장고 문이 열려있는 사진. 젓가락이 떨어져 있다.' }
+];
 
-// 📜 시나리오 스크립트 (핵심 데이터)
-// type: 'talk' (대화), 'choice' (선택지), 'scene' (배경변경), 'end' (엔딩)
-const SCRIPT = {
-  // === 프롤로그 ===
-  start: [
-    { type: 'scene', bg: 'classroom' },
-    { type: 'talk', char: 'narrator', text: "평범한 오후 4시. 방과 후 교실." },
-    { type: 'talk', char: 'jiho', text: "야, 그거 들었어? 우리 학교 옥상에 귀신 나온다는 소문.", face: 'normal' },
-    { type: 'talk', char: 'narrator', text: "지호가 내 책상에 걸터앉으며 물었다." },
-    { type: 'choice', choices: [
-        { text: "귀신이 어딨어, 바보냐?", next: 'route_skeptic' },
-        { text: "진짜? 어떤 귀신인데?", next: 'route_curious' }
-      ] 
-    }
-  ],
+// ==================== [2. 시나리오 데이터] ====================
 
-  // === 루트 A: 회의적인 반응 ===
-  route_skeptic: [
-    { type: 'talk', char: 'jiho', text: "아 재미없는 녀석. 진짜라니까?", face: 'angry' },
-    { type: 'talk', char: 'yuna', text: "너희들 아직도 안 갔어?", face: 'normal' },
-    { type: 'talk', char: 'narrator', text: "그때, 반장인 유나가 뒷문을 열고 들어왔다." },
-    { type: 'talk', char: 'jiho', text: "엇, 유나야! 마침 잘 왔다. 너도 옥상 귀신 얘기 알지?", face: 'smile' },
-    { type: 'talk', char: 'yuna', text: "...", face: 'shy' },
-    { type: 'talk', char: 'yuna', text: "그거... 내가 퍼뜨린 소문이야.", face: 'normal' },
-    { type: 'talk', char: 'jiho', text: "뭐?! 네가 왜?", face: 'shock' },
-    { type: 'choice', choices: [
-        { text: "유나를 추궁한다", next: 'route_investigate' },
-        { text: "유나를 감싸준다", next: 'route_romance' }
-      ]
-    }
-  ],
-
-  // === 루트 B: 호기심 ===
-  route_curious: [
-    { type: 'talk', char: 'jiho', text: "밤마다 옥상에서 쿵쿵 소리가 난대.", face: 'shock' },
-    { type: 'talk', char: 'detective', text: "잠깐, 거기 학생들.", face: 'serious' },
-    { type: 'talk', char: 'narrator', text: "갑자기 낯선 아저씨가 교실로 들어왔다." },
-    { type: 'talk', char: 'detective', text: "혹시 이 학교 옥상 열쇠, 누가 가지고 있는지 아나?", face: 'normal' },
-    { type: 'end', ending: "미스터리 루트 진입 (데모 종료)" }
-  ],
-
-  // === 루트 C: 추궁 (역전재판 스타일) ===
-  route_investigate: [
-    { type: 'scene', bg: 'black' },
-    { type: 'effect', name: 'shake' }, // 화면 흔들림 효과
-    { type: 'talk', char: 'narrator', text: "이의 있소!!", size: 'text-6xl', color: 'text-red-500' },
-    { type: 'scene', bg: 'classroom' },
-    { type: 'talk', char: 'detective', text: "학생, 그 추리... 제법이군.", face: 'smile' },
-    { type: 'end', ending: "탐정 엔딩: 진실을 쫓는 자" }
-  ],
-
-  // === 루트 D: 로맨스 (프린세스 메이커 스타일) ===
-  route_romance: [
-    { type: 'talk', char: 'yuna', text: "고마워... 사실 옥상에서 몰래 고양이를 키우고 있었거든.", face: 'smile' },
-    { type: 'talk', char: 'narrator', text: "유나의 얼굴이 붉어졌다. 호감도가 상승했다.", color: 'text-pink-300' },
-    { type: 'effect', name: 'heart' },
-    { type: 'end', ending: "로맨스 엔딩: 둘만의 비밀" }
-  ]
-};
-
-// ==================== [메인 엔진 컴포넌트] ====================
-
-export default function VisualNovelEngine() {
-  // --- State ---
-  const [screen, setScreen] = useState('title'); // title, game, ending
-  const [currentScript, setCurrentScript] = useState('start'); // 현재 시나리오 ID
-  const [currentIndex, setCurrentIndex] = useState(0); // 현재 대사 인덱스
-  const [displayedText, setDisplayedText] = useState(""); // 타이핑 효과용 텍스트
-  const [isTyping, setIsTyping] = useState(false);
-  const [log, setLog] = useState([]); // 대화 로그
-  const [showLog, setShowLog] = useState(false);
-  const [endingName, setEndingName] = useState("");
-  const [bg, setBg] = useState("classroom");
-  const [shake, setShake] = useState(false); // 화면 흔들림
-
-  // --- Refs ---
-  const typeInterval = useRef(null);
-  const scrollRef = useRef(null);
-
-  // --- 초기화 ---
-  useEffect(() => {
-    // 로컬 스토리지 체크 (Vercel 에러 방지)
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vn-save');
-      // 필요하면 여기서 로드 버튼 활성화 로직 추가
-    }
-  }, []);
-
-  // --- 엔진 로직: 대사 진행 ---
-  const processLine = useCallback(() => {
-    const lines = SCRIPT[currentScript];
-    if (!lines || currentIndex >= lines.length) return;
-
-    const line = lines[currentIndex];
-
-    // 1. 장면(배경) 변경
-    if (line.type === 'scene') {
-      setBg(line.bg);
-      setCurrentIndex(prev => prev + 1);
-      return;
-    }
-
-    // 2. 특수 효과
-    if (line.type === 'effect') {
-      if (line.name === 'shake') {
-        setShake(true);
-        setTimeout(() => setShake(false), 500);
+const SCRIPT = [
+  // --- 인트로 ---
+  { type: 'scene', bg: 'court' },
+  { type: 'talk', char: 'judge', text: "지금부터 '교장 선생님 푸딩 도난 사건'의 재판을 개정합니다." },
+  { type: 'talk', char: 'prosecutor', text: "피고인(지호)은 점심시간에 교장실에 몰래 들어가 푸딩을 훔쳐 먹었습니다.", face: 'normal' },
+  { type: 'talk', char: 'player', text: "(지호가 그럴 리 없어. 내가 무죄를 밝혀내겠어!)", face: 'normal' },
+  { type: 'talk', char: 'judge', text: "그럼, 목격자인 박민수 학생. 증언해주세요." },
+  
+  // --- 심문 파트 시작 ---
+  { type: 'anim', name: 'witness_start' }, // 증언 개시 효과
+  { type: 'talk', char: 'witness', text: "아, 네.. 저는 그때 똑똑히 봤습니다.", face: 'normal' },
+  
+  // [증언 루프 구간] - 여기서 유저가 추궁/제시를 해야 함
+  { 
+    id: 'testimony_1',
+    type: 'cross_exam', 
+    statements: [
+      { 
+        text: "1. 저는 12시 30분에 교장실 앞을 지나가고 있었어요.", 
+        weakness: false 
+      },
+      { 
+        text: "2. 그때 지호가 교장실에서 허겁지겁 나오는 걸 봤죠.", 
+        weakness: false 
+      },
+      { 
+        text: "3. 손에는 숟가락을 들고 입가엔 푸딩을 묻히고 있었어요!", 
+        weakness: false,
+        press: "잠깐! 확실히 '숟가락'이었나요? 잘못 본 거 아닙니까?" // 추궁 시 대사
+      },
+      { 
+        text: "4. 분명 훔쳐 먹은 게 틀림없습니다! 아주 맛있게 먹더군요.", 
+        weakness: true, // 여기가 약점 (영수증과 모순)
+        contradiction: 'receipt', // 영수증을 제시하면 성공
+        successNext: 'success_route',
+        failMsg: "그 증거는 이 발언과 모순되지 않아..."
       }
-      setCurrentIndex(prev => prev + 1);
-      return;
-    }
+    ]
+  },
+  { type: 'talk', char: 'player', text: "(이 증언... 어딘가 이상해. 증거품과 비교해보자.)", guide: true },
+  { type: 'jump', to: 'testimony_1' } // 못 찾으면 무한 루프
+];
 
-    // 3. 엔딩 처리
-    if (line.type === 'end') {
-      setEndingName(line.ending);
-      setScreen('ending');
-      return;
-    }
+const SUCCESS_SCRIPT = [
+  { type: 'anim', name: 'objection' }, // 이의 있소!!
+  { type: 'talk', char: 'player', text: "잠깐! 그 증언은 명백히 모순되어 있습니다!", size: 'big' },
+  { type: 'talk', char: 'witness', text: "네? 뭐, 뭐가요?", face: 'sweat' },
+  { type: 'talk', char: 'player', text: "당신은 12시 30분에 범행을 목격했다고 했지만...", face: 'normal' },
+  { type: 'evidence_flash', id: 'receipt' }, // 증거 번쩍
+  { type: 'talk', char: 'player', text: "이 영수증을 보십시오! 12시 30분에 지호는 매점에서 빵을 사고 있었습니다!", color: 'text-blue-400' },
+  { type: 'talk', char: 'prosecutor', text: "뭣이?! 알리바이가 성립한다는 건가!", face: 'shock' },
+  { type: 'talk', char: 'witness', text: "으으윽... 그, 그건...", face: 'shock' },
+  { type: 'talk', char: 'judge', text: "증인! 거짓말을 한 겁니까?", face: 'normal' },
+  { type: 'talk', char: 'witness', text: "사실... 제가 먹었습니다!!! 죄송합니다!!!", face: 'breakdown' },
+  { type: 'anim', name: 'confetti' },
+  { type: 'end', text: "승소 - 완벽한 역전" }
+];
 
-    // 4. 대화 출력 (타이핑 효과)
-    if (line.type === 'talk') {
-      setIsTyping(true);
-      setDisplayedText("");
-      let charIdx = 0;
-      
-      clearInterval(typeInterval.current);
-      typeInterval.current = setInterval(() => {
-        if (charIdx < line.text.length) {
-          setDisplayedText(line.text.substring(0, charIdx + 1));
-          charIdx++;
-        } else {
-          setIsTyping(false);
-          clearInterval(typeInterval.current);
-        }
-      }, 30); // 타이핑 속도 (ms)
-    }
+// ==================== [3. 엔진 컴포넌트] ====================
 
-  }, [currentScript, currentIndex]);
+export default function AceAttorneyGame() {
+  const [index, setIndex] = useState(0);
+  const [script, setScript] = useState(SCRIPT);
+  const [bg, setBg] = useState("bg-slate-900");
+  const [evidenceMode, setEvidenceMode] = useState(false); // 증거 제시 모드
+  const [hp, setHp] = useState(5); // 하트 5개 (실수하면 깎임)
+  const [shake, setShake] = useState(false);
+  const [flash, setFlash] = useState(false); // 이의있소 컷신용
+  const [objectionType, setObjectionType] = useState(null); // 'objection', 'holdit'
 
-  // currentIndex 변경 시 실행
-  useEffect(() => {
-    if (screen === 'game') {
-      processLine();
-    }
-  }, [screen, currentScript, currentIndex, processLine]);
+  // 심문(Cross Exam) 상태
+  const [ceIndex, setCeIndex] = useState(0); // 현재 심문 중인 문장 인덱스
+  
+  const currentLine = script[index];
 
-  // --- 유저 입력 처리 ---
+  // --- 진행 로직 ---
   const handleNext = () => {
-    const lines = SCRIPT[currentScript];
-    const line = lines[currentIndex];
+    if (evidenceMode) return; // 증거 창 열려있으면 클릭 방지
 
-    // 선택지에서는 클릭으로 넘어가지 않음
-    if (line.type === 'choice') return;
-
-    // 타이핑 중이면 즉시 완성
-    if (isTyping) {
-      clearInterval(typeInterval.current);
-      setDisplayedText(line.text);
-      setIsTyping(false);
+    // 심문 모드일 때
+    if (currentLine.type === 'cross_exam') {
+      const nextStmtIdx = ceIndex + 1;
+      if (nextStmtIdx >= currentLine.statements.length) {
+        // 심문 한 바퀴 돌았음 -> 다음 스크립트로 이동 (보통 루프됨)
+        setIndex(prev => prev + 1);
+        setCeIndex(0);
+      } else {
+        setCeIndex(nextStmtIdx);
+      }
       return;
     }
 
-    // 로그 저장
-    setLog(prev => [...prev, { char: CHARACTERS[line.char]?.name || "System", text: line.text }]);
-
-    // 다음 대사로
-    setCurrentIndex(prev => prev + 1);
-  };
-
-  const handleChoice = (nextId) => {
-    setCurrentScript(nextId);
-    setCurrentIndex(0);
-  };
-
-  // 저장 기능
-  const saveGame = () => {
-    if (typeof window !== 'undefined') {
-      const data = { currentScript, currentIndex, bg, log };
-      localStorage.setItem('vn-save', JSON.stringify(data));
-      alert("진행 상황이 저장되었습니다.");
+    // 일반 대화 모드
+    if (currentLine.type === 'jump') {
+      const targetIdx = script.findIndex(l => l.id === currentLine.to);
+      setIndex(targetIdx);
+    } else if (currentLine.type === 'end') {
+      alert("게임 클리어! " + currentLine.text);
+      window.location.reload();
+    } else {
+      setIndex(prev => prev + 1);
     }
   };
 
-  // 불러오기 기능
-  const loadGame = () => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vn-save');
-      if (saved) {
-        const data = JSON.parse(saved);
-        setCurrentScript(data.currentScript);
-        setCurrentIndex(data.currentIndex);
-        setBg(data.bg);
-        setLog(data.log);
-        setScreen('game');
+  // --- 효과 처리 ---
+  useEffect(() => {
+    if (!currentLine) return;
+
+    if (currentLine.type === 'anim') {
+      if (currentLine.name === 'objection') {
+        setObjectionType('objection');
+        setTimeout(() => { setObjectionType(null); handleNext(); }, 1500);
+      } else if (currentLine.name === 'witness_start') {
+        setFlash(true);
+        setTimeout(() => { setFlash(false); handleNext(); }, 500);
       } else {
-        alert("저장된 데이터가 없습니다.");
+        handleNext();
+      }
+    }
+  }, [index, script]);
+
+  // --- 증거 제시 로직 (핵심) ---
+  const presentEvidence = (evidenceId) => {
+    if (currentLine.type !== 'cross_exam') return;
+
+    const statement = currentLine.statements[ceIndex];
+    
+    if (statement.weakness && statement.contradiction === evidenceId) {
+      // 정답!
+      setObjectionType('objection');
+      setTimeout(() => {
+        setObjectionType(null);
+        setScript(SUCCESS_SCRIPT); // 성공 루트로 스크립트 교체
+        setIndex(0);
+        setEvidenceMode(false);
+      }, 1500);
+    } else {
+      // 오답!
+      setHp(prev => Math.max(0, prev - 1));
+      triggerShake();
+      alert("재판장: 그 증거는 지금 발언과 관련이 없습니다! (패널티 -1)");
+      if (hp <= 1) {
+        alert("패소... 유죄 판결이 내려졌습니다.");
+        window.location.reload();
       }
     }
   };
 
-  // --- 렌더링 ---
+  const triggerShake = () => {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
+  };
 
-  // 현재 라인 데이터 가져오기
-  const currentLine = SCRIPT[currentScript]?.[currentIndex];
-  const currentChar = currentLine?.char ? CHARACTERS[currentLine.char] : null;
+  // --- 렌더링 헬퍼 ---
+  const isCrossExam = currentLine?.type === 'cross_exam';
+  const currentStatement = isCrossExam ? currentLine.statements[ceIndex] : null;
+  const displayText = isCrossExam ? currentStatement.text : currentLine?.text;
+  const displayChar = isCrossExam ? CHARACTERS.witness : (currentLine?.char ? CHARACTERS[currentLine.char] : null);
 
-  // 타이틀 화면
-  if (screen === 'title') {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col items-center justify-center text-white relative overflow-hidden">
-        {/* 배경 애니메이션 */}
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1593022568600-b6b91ae4608b?q=80&w=2070')] bg-cover opacity-30 animate-pulse-slow"></div>
-        
-        <div className="z-10 text-center space-y-8 animate-in fade-in zoom-in duration-700">
-          <h1 className="text-6xl font-black tracking-tighter drop-shadow-2xl">
-            <span className="text-red-500">방과 후</span> 미스터리
-          </h1>
-          <p className="text-xl text-gray-300">선택에 따라 운명이 바뀌는 비주얼 노벨</p>
+  return (
+    <div className={`h-screen w-full bg-slate-900 overflow-hidden relative select-none font-sans ${shake ? 'animate-shake' : ''}`}>
+      <style jsx global>{`
+        @keyframes shake { 0%, 100% { transform: translate(0, 0); } 10%, 30%, 50%, 70%, 90% { transform: translate(-5px, 0); } 20%, 40%, 60%, 80% { transform: translate(5px, 0); } }
+        .animate-shake { animation: shake 0.4s; }
+        @keyframes pop-in { 0% { transform: scale(0); opacity: 0; } 80% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+      `}</style>
+
+      {/* 배경 (법정) */}
+      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1589829085413-56de8ae18c73?q=80&w=2000')] bg-cover opacity-30"></div>
+
+      {/* === HP 바 (재판관 신뢰도) === */}
+      <div className="absolute top-4 left-4 z-50 flex gap-1 bg-black/50 p-2 rounded-full border border-white/20">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className={`w-6 h-6 rounded-full transition-all ${i < hp ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-gray-800'}`}>
+            {i < hp && "⚖️"}
+          </div>
+        ))}
+      </div>
+
+      {/* === 이의있소! 오버레이 === */}
+      {objectionType && (
+        <div className="absolute inset-0 z-[100] bg-white flex items-center justify-center animate-in fade-out duration-1000 fill-mode-forwards">
+          <div className="relative">
+            <div className="absolute inset-0 bg-red-600 animate-ping opacity-50 rounded-full"></div>
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Objection.svg/1200px-Objection.svg.png" 
+                 alt="Objection" className="w-[500px] animate-[pop-in_0.3s_ease-out]" />
+          </div>
+        </div>
+      )}
+
+      {/* === 캐릭터 스탠딩 === */}
+      <div className="absolute bottom-40 w-full flex justify-center z-10 pointer-events-none">
+        {displayChar && (
+          <div className={`text-[200px] md:text-[300px] filter drop-shadow-2xl transition-transform duration-300 ${isCrossExam ? 'animate-bounce-slow' : ''}`}>
+            {displayChar.image || (currentLine.face ? displayChar.images[currentLine.face] : displayChar.images?.normal)}
+          </div>
+        )}
+      </div>
+
+      {/* === 심문 중 표시 === */}
+      {isCrossExam && (
+        <div className="absolute top-20 w-full text-center z-20">
+          <div className="inline-block bg-green-700 text-white font-black text-2xl px-12 py-2 rounded-sm border-y-4 border-green-500 shadow-lg animate-pulse">
+            ~ 증언 시작 ~
+          </div>
+        </div>
+      )}
+
+      {/* === 대화창 (하단) === */}
+      <div 
+        onClick={handleNext}
+        className={`absolute bottom-0 w-full p-4 md:p-8 z-30 transition-all ${evidenceMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}
+      >
+        <div className="max-w-4xl mx-auto bg-black/80 backdrop-blur-md border-4 border-white/20 rounded-xl p-6 min-h-[180px] relative shadow-2xl hover:bg-black/90 cursor-pointer">
+          {/* 이름표 */}
+          {displayChar && (
+            <div className="absolute -top-5 left-6 bg-blue-600 text-white font-bold px-6 py-1 rounded-t-lg border-t-2 border-x-2 border-white/20 text-lg">
+              {displayChar.name}
+            </div>
+          )}
           
-          <div className="flex flex-col gap-4 w-64 mx-auto">
-            <button onClick={() => { setScreen('game'); setCurrentScript('start'); setCurrentIndex(0); setLog([]); }} className="flex items-center justify-center gap-2 py-4 bg-white text-black font-bold rounded-xl hover:scale-105 transition-all shadow-xl">
-              <Play size={20}/> 게임 시작
-            </button>
-            <button onClick={loadGame} className="flex items-center justify-center gap-2 py-4 bg-slate-700 text-white font-bold rounded-xl hover:bg-slate-600 transition-all shadow-xl border border-slate-600">
-              <RotateCcw size={20}/> 이어하기
-            </button>
+          {/* 텍스트 */}
+          <p className={`text-xl md:text-2xl font-medium leading-relaxed ${isCrossExam ? 'text-green-300' : 'text-white'}`}>
+            {displayText}
+          </p>
+
+          {/* 심문 컨트롤러 */}
+          {isCrossExam && (
+            <div className="absolute -top-16 right-0 flex gap-4">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setEvidenceMode(true); }}
+                className="bg-yellow-500 hover:bg-yellow-400 text-black font-black text-xl px-6 py-3 rounded-full shadow-[0_4px_0_#b45309] active:translate-y-1 active:shadow-none flex items-center gap-2"
+              >
+                <Briefcase/> 증거 제시
+              </button>
+            </div>
+          )}
+
+          {/* 다음 화살표 */}
+          <div className="absolute bottom-4 right-4 animate-bounce text-slate-400">
+            <ChevronRight size={32} />
           </div>
         </div>
       </div>
-    );
-  }
 
-  // 엔딩 화면
-  if (screen === 'ending') {
-    return (
-      <div className="h-screen bg-black text-white flex flex-col items-center justify-center p-8 animate-in fade-in duration-1000">
-        <h2 className="text-4xl font-bold mb-4 text-yellow-400">THE END</h2>
-        <div className="text-2xl mb-12 border-b-2 border-white pb-2">{endingName}</div>
-        <button onClick={() => setScreen('title')} className="px-8 py-3 bg-white text-black font-bold rounded-full hover:bg-gray-200">
-          타이틀로 돌아가기
-        </button>
-      </div>
-    );
-  }
-
-  // 게임 화면
-  return (
-    <div className={`h-screen w-full relative overflow-hidden select-none font-sans ${BACKGROUNDS[bg] || 'bg-slate-900'} transition-colors duration-1000`}>
-      <style jsx global>{`
-        .animate-pulse-slow { animation: pulse 10s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
-        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
-      `}</style>
-
-      <div className={`absolute inset-0 ${shake ? 'shake' : ''}`}>
-        
-        {/* === 1. 상단 메뉴 === */}
-        <div className="absolute top-0 right-0 p-4 z-50 flex gap-2">
-          <button onClick={() => setShowLog(true)} className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><History size={20}/></button>
-          <button onClick={saveGame} className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Save size={20}/></button>
-          <button onClick={() => setScreen('title')} className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Menu size={20}/></button>
-        </div>
-
-        {/* === 2. 캐릭터 스탠딩 (화면 중앙) === */}
-        <div className="absolute bottom-40 w-full flex justify-center items-end pointer-events-none z-10">
-          {currentChar && currentChar.images && (
-            <div className="text-[150px] md:text-[250px] filter drop-shadow-2xl animate-in slide-in-from-bottom-10 duration-500 transform transition-transform">
-              {currentChar.images[currentLine.face] || currentChar.images.normal}
+      {/* === 증거 법정기록 (Inventory) === */}
+      {evidenceMode && (
+        <div className="absolute inset-0 bg-black/90 z-40 p-8 flex flex-col items-center animate-in slide-in-from-bottom-10">
+          <div className="w-full max-w-4xl">
+            <div className="flex justify-between items-center mb-8 border-b-2 border-gray-700 pb-4">
+              <h2 className="text-3xl font-black text-white flex items-center gap-2"><Briefcase/> 법정 기록</h2>
+              <button onClick={() => setEvidenceMode(false)} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-full font-bold">닫기</button>
             </div>
-          )}
-        </div>
 
-        {/* === 3. 대화창 (하단) === */}
-        <div className="absolute bottom-0 w-full p-4 md:p-8 z-20">
-          {/* 선택지 모드 */}
-          {currentLine?.type === 'choice' ? (
-            <div className="flex flex-col gap-3 max-w-2xl mx-auto mb-20 animate-in zoom-in duration-300">
-              {currentLine.choices.map((choice, i) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {EVIDENCE.map(item => (
                 <button 
-                  key={i} 
-                  onClick={() => handleChoice(choice.next)}
-                  className="w-full py-5 bg-white/90 backdrop-blur-md text-slate-900 font-bold text-xl rounded-2xl shadow-xl hover:bg-white hover:scale-105 transition-all border-l-8 border-indigo-500"
+                  key={item.id}
+                  onClick={() => presentEvidence(item.id)}
+                  className="bg-slate-800 p-4 rounded-xl border-2 border-slate-600 flex items-center gap-4 hover:bg-slate-700 hover:border-yellow-500 transition-all group text-left"
                 >
-                  {choice.text}
+                  <div className="text-4xl bg-black/50 p-3 rounded-lg group-hover:scale-110 transition-transform">{item.icon}</div>
+                  <div>
+                    <div className="text-xl font-bold text-yellow-400 mb-1">{item.name}</div>
+                    <div className="text-sm text-gray-400">{item.desc}</div>
+                    <div className="mt-2 text-xs text-red-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      이 증거를 제시한다! (CLICK)
+                    </div>
+                  </div>
                 </button>
               ))}
             </div>
-          ) : (
-            // 일반 대화 모드
-            <div 
-              onClick={handleNext}
-              className="relative bg-black/80 backdrop-blur-md border-2 border-white/20 rounded-3xl p-6 md:p-8 min-h-[180px] shadow-2xl cursor-pointer hover:bg-black/85 transition-colors group"
-            >
-              {/* 이름표 */}
-              {currentChar && (
-                <div className="absolute -top-6 left-8 bg-indigo-600 text-white px-6 py-2 rounded-xl font-black text-lg shadow-lg border border-white/20">
-                  {currentChar.name}
-                </div>
-              )}
-              
-              {/* 대사 텍스트 */}
-              <p className={`text-xl md:text-2xl text-white leading-relaxed font-medium ${currentLine?.size || ''} ${currentLine?.color || ''}`}>
-                {displayedText}
-                {isTyping && <span className="animate-pulse">|</span>}
-              </p>
-
-              {/* 다음 아이콘 */}
-              {!isTyping && (
-                <div className="absolute bottom-6 right-6 animate-bounce text-indigo-400">
-                  <ChevronRight size={32} strokeWidth={3} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* === 4. 로그 오버레이 === */}
-        {showLog && (
-          <div className="absolute inset-0 bg-black/90 z-50 p-8 flex flex-col animate-in fade-in">
-            <div className="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
-              <h2 className="text-3xl font-bold text-white">지난 대화</h2>
-              <button onClick={() => setShowLog(false)} className="p-2 bg-white text-black rounded-full"><X/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
-              {log.map((l, i) => (
-                <div key={i} className="flex flex-col gap-1">
-                  <span className="text-indigo-400 font-bold text-sm">{l.char}</span>
-                  <span className="text-gray-300 text-lg">{l.text}</span>
-                </div>
-              ))}
-              {log.length === 0 && <div className="text-gray-500 text-center mt-20">기록된 대화가 없습니다.</div>}
-            </div>
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
     </div>
   );
 }
