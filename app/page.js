@@ -397,7 +397,7 @@ const FULL_SCRIPT = [
   ...FINALE_SUCCESS
 ];
 // ==================== [3. 엔진 컴포넌트 확장] ====================
-export default function AceAttorneyGame() {
+function AceAttorneyGame() {
   const [script] = useState(FULL_SCRIPT);
   const [index, setIndex] = useState(0);
   const [evidenceMode, setEvidenceMode] = useState(false);
@@ -686,4 +686,6 @@ export default function AceAttorneyGame() {
       )}
     </div>
   );
-        }
+}
+
+export default AceAttorneyGame;
