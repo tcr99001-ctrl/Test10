@@ -1,4 +1,4 @@
-```javascript
+
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles, MessageSquare } from 'lucide-react';
