@@ -1,7 +1,6 @@
-
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
-import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles, MessageSquare } from 'lucide-react';
+import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles, MessageSquare, MapPin, Eye } from 'lucide-react';
 // ==================== [1. 통합 캐릭터 및 증거 설정] ====================
 const CHARACTERS = {
   judge: { name: "재판장", image: "👨‍⚖️" },
@@ -9,9 +8,11 @@ const CHARACTERS = {
   player: { name: "김변호", image: "👉", desc: "역전의 발상" },
   witness: { name: "최태오", images: { normal: "😎", sweat: "😎💦", angry: "🤬", shock: "🤯", breakdown: "🧟‍♂️" }, desc: "미술부 부장. 거만함." },
   jimin: { name: "이지민", image: "🥺", desc: "피고인. 소심한 미술부원." },
-  narrator: { name: "나레이션", image: "" }
+  narrator: { name: "나레이션", image: "" },
+  teacher: { name: "미술 선생님", image: "👩‍🏫", desc: "미술부 지도교사." },
+  club_member: { name: "미술부원 A", image: "🧑‍🎨", desc: "평범한 부원." }
 };
-const EVIDENCE = [
+const ALL_EVIDENCE = [
   { id: 'knife', name: '미술용 나이프', icon: '🔪', desc: '지민의 지문이 묻어있지만, 누구나 만질 수 있는 공용 도구다.' },
   { id: 'picture', name: '훼손된 그림', icon: '🎨', desc: '붉은 물감통이 터져서 그림 전체가 피처럼 붉게 물들었다.' },
   { id: 'cctv', name: '복도 CCTV', icon: '📹', desc: '사건 시각(16:00) 전후로 미술실 앞 복도를 지나간 사람은 없었다.' },
@@ -23,7 +24,67 @@ const EVIDENCE = [
   { id: 'floor_photo', name: '바닥 현장 사진', icon: '📸', desc: '그림 주변 반경 2m까지 붉은 물감이 튀어 난장판이다.' },
   { id: 'stained_glove', name: '피묻은(?) 장갑', icon: '🥊', desc: '★결정적 증거★ 쓰레기통 깊숙한 곳에서 발견된 붉은 물감 범벅의 장갑. [태오]라는 이름이 쓰여있다.' }
 ];
-// ==================== [2. 통합 시나리오 데이터] ====================
+// ==================== [2. 탐정 파트 시나리오 (비주얼 노벨 스타일)] ====================
+const INVESTIGATION_LOCATIONS = [
+  { id: 'art_room', name: '미술실', bg: 'bg-indigo-900', desc: '사건 현장. 물감 냄새가 진동한다.' },
+  { id: 'hallway', name: '복도', bg: 'bg-gray-700', desc: '미술실 앞 복도. CCTV가 설치되어 있다.' },
+  { id: 'storage', name: '창고', bg: 'bg-brown-800', desc: '미술실 뒷문으로 연결된 비품 창고.' },
+  { id: 'club_room', name: '부실', bg: 'bg-green-900', desc: '미술부 활동실. 부원들이 모이는 곳.' }
+];
+const INVESTIGATION_SCRIPT = [
+  { type: 'scene', bg: 'bg-black', location: 'art_room' },
+  { type: 'talk', char: 'narrator', text: "[탐정 파트 시작] 사건 직후, 김변호는 증거를 모으기 위해 학교를 조사한다." },
+  { type: 'talk', char: 'player', text: "(지민이를 구하려면 증거를 모아야 해. 어디부터 조사할까?)" },
+  { type: 'choice', options: [
+    { text: '미술실 조사', action: 'investigate_art_room' },
+    { text: '복도 확인', action: 'investigate_hallway' },
+    { text: '창고 보기', action: 'investigate_storage' },
+    { text: '부원들 대화', action: 'talk_club' }
+  ], id: 'main_choice' },
+  // 미술실 조사 브랜치
+  { id: 'investigate_art_room', type: 'talk', char: 'player', text: "(미술실... 현장이 아직 남아있군.)" },
+  { type: 'investigate', items: [
+    { name: '그림', desc: '훼손된 그림. 물감이 사방에 튀었다.', evidence: 'picture' },
+    { name: '나이프', desc: '바닥에 떨어진 나이프. 지문 검사가 필요해.', evidence: 'knife' },
+    { name: '쓰레기통', desc: '깊숙이 물감 묻은 장갑이... 이름이 태오?', evidence: 'stained_glove' },
+    { name: '바닥', desc: '물감 범벅. 사진 찍자.', evidence: 'floor_photo' }
+  ] },
+  { type: 'talk', char: 'player', text: "(이 정도면 충분한가? 다른 곳도 봐야 해.)" },
+  { type: 'jump', to: 'main_choice' },
+  // 복도 브랜치
+  { id: 'investigate_hallway', type: 'talk', char: 'player', text: "(복도... CCTV가 보이네.)" },
+  { type: 'talk', char: 'teacher', text: "변호사님? CCTV 기록을 찾으시나요? 여기요." },
+  { type: 'evidence_add', id: 'cctv' },
+  { type: 'talk', char: 'player', text: "(좋아, 복도 CCTV 획득!)" },
+  { type: 'jump', to: 'main_choice' },
+  // 창고 브랜치
+  { id: 'investigate_storage', type: 'talk', char: 'player', text: "(창고... 뒷문으로 연결됐어.)" },
+  { type: 'investigate', items: [
+    { name: '창문', desc: '쇠창살로 막혀있어. 사진 찍자.', evidence: 'storage_photo' },
+    { name: '수색 보고서', desc: '경찰 보고서. 안은 비었다고.', evidence: 'police_report' }
+  ] },
+  { type: 'jump', to: 'main_choice' },
+  // 부원 대화 브랜치
+  { id: 'talk_club', type: 'talk', char: 'club_member', text: "변호사님? 지민이는 착한 애예요. 태오 부장이 좀 질투심이 강했죠." },
+  { type: 'choice', options: [
+    { text: '지민이 앞치마에 대해', action: 'ask_apron' },
+    { text: '장갑에 대해', action: 'ask_glove' },
+    { text: '도면에 대해', action: 'ask_map' },
+    { text: '돌아가기', action: 'main_choice' }
+  ] },
+  { id: 'ask_apron', type: 'talk', char: 'jimin', text: "제 앞치마요? 사건 때 입었어요. 물감 한 방울 안 묻었어요." },
+  { type: 'evidence_add', id: 'apron' },
+  { type: 'jump', to: 'talk_club' },
+  { id: 'ask_glove', type: 'talk', char: 'jimin', text: "제 장갑은 깨끗해요. 태오 부장 건 물감 묻었을지도..." },
+  { type: 'evidence_add', id: 'glove' },
+  { type: 'jump', to: 'talk_club' },
+  { id: 'ask_map', type: 'talk', char: 'teacher', text: "미술실 도면? 여기 있어요." },
+  { type: 'evidence_add', id: 'floor_map' },
+  { type: 'jump', to: 'talk_club' },
+  // 종료 조건 (모든 증거 모으면 재판 시작)
+  { type: 'end_investigation', text: "증거 수집 완료! 재판으로 이동합니다." }
+];
+// ==================== [재판 스크립트] ====================
 const SCRIPT_PART_1 = [
   // --- 인트로 ---
   { type: 'scene', bg: 'bg-slate-900' },
@@ -323,7 +384,9 @@ const FINALE_SUCCESS = [
   { type: 'talk', char: 'narrator', text: "김변호의 화려한 역전승이었다.", color: 'text-yellow-400' },
   { type: 'end', text: "THE END - 플레이해주셔서 감사합니다!" }
 ];
+// ==================== [통합 FULL_SCRIPT] ====================
 const FULL_SCRIPT = [
+  ...INVESTIGATION_SCRIPT,
   ...SCRIPT_PART_1,
   ...PART_1_SUCCESS,
   ...SCRIPT_PART_2,
@@ -333,13 +396,17 @@ const FULL_SCRIPT = [
   ...SCRIPT_PART_4,
   ...FINALE_SUCCESS
 ];
-// ==================== [3. 엔진 컴포넌트] ====================
+// ==================== [3. 엔진 컴포넌트 확장] ====================
 export default function AceAttorneyGame() {
   const [script] = useState(FULL_SCRIPT);
   const [index, setIndex] = useState(0);
   const [evidenceMode, setEvidenceMode] = useState(false);
   const [pressMode, setPressMode] = useState(false);
   const [pressIndex, setPressIndex] = useState(0);
+  const [investigateMode, setInvestigateMode] = useState(false);
+  const [choiceMode, setChoiceMode] = useState(false);
+  const [collectedEvidence, setCollectedEvidence] = useState([]); // 동적 증거 수집
+  const [currentLocation, setCurrentLocation] = useState('art_room');
   const [hp, setHp] = useState(5);
   const [shake, setShake] = useState(false);
   const [flash, setFlash] = useState(false);
@@ -347,20 +414,52 @@ export default function AceAttorneyGame() {
   const [ceIndex, setCeIndex] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
   const [currentBg, setCurrentBg] = useState('bg-slate-800');
-  const currentLine = script[index];
+  const currentLine = script[index] || {};
+  const isInvestigation = ['investigate', 'choice', 'evidence_add', 'end_investigation'].includes(currentLine.type) || choiceMode || investigateMode;
   const handleNext = () => {
-    if (evidenceMode || pressMode || isEnding) return;
-    if (currentLine?.type === 'cross_exam') {
+    if (evidenceMode || pressMode || investigateMode || choiceMode || isEnding) return;
+    if (currentLine.type === 'cross_exam') {
       const nextIdx = ceIndex + 1;
       setCeIndex(nextIdx >= currentLine.statements.length ? 0 : nextIdx);
       return;
     }
+    if (currentLine.type === 'end_investigation') {
+      if (collectedEvidence.length === ALL_EVIDENCE.length) {
+        setIndex(index + 1); // 재판 시작
+      } else {
+        alert("아직 모든 증거를 모으지 않았습니다!");
+      }
+      return;
+    }
+    if (currentLine.type === 'jump') {
+      const targetIndex = script.findIndex(l => l.id === currentLine.to);
+      if (targetIndex !== -1) setIndex(targetIndex);
+      else setIndex(index + 1);
+      return;
+    }
     setIndex(prev => prev + 1);
   };
+  const addEvidence = (id) => {
+    const ev = ALL_EVIDENCE.find(e => e.id === id);
+    if (ev && !collectedEvidence.some(e => e.id === id)) {
+      setCollectedEvidence([...collectedEvidence, ev]);
+      alert(`${ev.name} 획득!`);
+    }
+  };
+  const handleChoice = (action) => {
+    const target = script.findIndex(l => l.id === action);
+    if (target !== -1) {
+      setIndex(target);
+    }
+    setChoiceMode(false);
+  };
+  const handleInvestigate = (item) => {
+    if (item.evidence) addEvidence(item.evidence);
+  };
   const handlePress = () => {
-    if (currentLine?.type !== 'cross_exam') return;
+    if (currentLine.type !== 'cross_exam') return;
     const stmt = currentLine.statements[ceIndex];
-    if (stmt.press) {
+    if (stmt.pressResponse) {
       setPressMode(true);
       setPressIndex(0);
     } else {
@@ -378,9 +477,8 @@ export default function AceAttorneyGame() {
     }
   };
   const presentEvidence = (id) => {
-    if (currentLine?.type !== 'cross_exam') return;
+    if (currentLine.type !== 'cross_exam') return;
     const stmt = currentLine.statements[ceIndex];
-   
     if (stmt.weakness && stmt.contradiction === id) {
       setEffectText("이의 있소!");
       setShake(true);
@@ -392,16 +490,26 @@ export default function AceAttorneyGame() {
         setCeIndex(0);
       }, 1500);
     } else {
-      setHp(h => Math.max(0, h-1));
+      setHp(h => Math.max(0, h - 1));
       setShake(true);
       setTimeout(() => setShake(false), 500);
       alert(stmt.failMsg || "그 증거는 모순이 아닙니다! (패널티)");
-      if(hp <= 1) window.location.reload();
+      if (hp <= 1) window.location.reload();
     }
   };
   useEffect(() => {
     if (!currentLine) return;
     switch (currentLine.type) {
+      case 'choice':
+        setChoiceMode(true);
+        break;
+      case 'investigate':
+        setInvestigateMode(true);
+        break;
+      case 'evidence_add':
+        addEvidence(currentLine.id);
+        setIndex(index + 1);
+        break;
       case 'anim':
         if (currentLine.name === 'objection') {
           setEffectText("이의 있소!"); setShake(true);
@@ -416,7 +524,8 @@ export default function AceAttorneyGame() {
         }
         break;
       case 'scene':
-        setCurrentBg(currentLine.bg);
+        setCurrentBg(currentLine.bg || 'bg-slate-800');
+        if (currentLine.location) setCurrentLocation(currentLine.location);
         setIndex(index + 1);
         break;
       case 'evidence_flash':
@@ -429,14 +538,15 @@ export default function AceAttorneyGame() {
       default:
         break;
     }
-  }, [index]);
-  const isCE = currentLine?.type === 'cross_exam';
+  }, [index, currentLine]);
+  const isCE = currentLine.type === 'cross_exam';
   const stmt = isCE ? currentLine.statements[ceIndex] : null;
-  const txt = isCE ? stmt.text : currentLine?.text;
-  const char = isCE ? CHARACTERS.witness : (currentLine?.char ? CHARACTERS[currentLine.char] : null);
+  const txt = isCE ? stmt?.text : currentLine.text;
+  const char = isCE ? CHARACTERS.witness : (currentLine.char ? CHARACTERS[currentLine.char] : null);
   const isFinal = isCE && currentLine.id === 'ce_4';
-  const pressTxt = pressMode ? currentLine.statements[ceIndex].pressResponse[pressIndex].text : null;
-  const pressChar = pressMode ? CHARACTERS[currentLine.statements[ceIndex].pressResponse[pressIndex].char] : null;
+  const pressTxt = pressMode ? currentLine.statements[ceIndex]?.pressResponse[pressIndex]?.text : null;
+  const pressChar = pressMode ? CHARACTERS[currentLine.statements[ceIndex]?.pressResponse[pressIndex]?.char] : null;
+  const pressFace = pressMode ? currentLine.statements[ceIndex]?.pressResponse[pressIndex]?.face : null;
   // 엔딩 화면
   if (isEnding) {
     return (
@@ -468,22 +578,24 @@ export default function AceAttorneyGame() {
       `}</style>
       {/* 배경 */}
       <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1589829085413-56de8ae18c73?q=80&w=2000')] bg-cover opacity-30"></div>
-      {/* HP */}
-      <div className="absolute top-4 left-4 flex gap-1 bg-black/40 p-2 rounded-full z-50">
-        {[...Array(5)].map((_,i) => <div key={i} className={`w-6 h-6 rounded-full ${i<hp?'bg-green-500':'bg-red-900'}`}>{i<hp?'⚖️':''}</div>)}
-      </div>
+      {/* HP (재판 시만) */}
+      {!isInvestigation && (
+        <div className="absolute top-4 left-4 flex gap-1 bg-black/40 p-2 rounded-full z-50">
+          {[...Array(5)].map((_, i) => <div key={i} className={`w-6 h-6 rounded-full ${i < hp ? 'bg-green-500' : 'bg-red-900'}`}>{i < hp ? '⚖️' : ''}</div>)}
+        </div>
+      )}
       {/* 컷신 */}
       {effectText && (
         <div className="absolute inset-0 z-[100] bg-white flex items-center justify-center">
           <div className="relative">
-             <div className="absolute inset-0 bg-blue-600 animate-ping opacity-50 rounded-full"></div>
-             <h1 className="text-9xl font-black text-blue-600 tracking-tighter animate-pop drop-shadow-2xl italic border-4 border-black p-4 bg-white transform -rotate-6">{effectText}</h1>
+            <div className="absolute inset-0 bg-blue-600 animate-ping opacity-50 rounded-full"></div>
+            <h1 className="text-9xl font-black text-blue-600 tracking-tighter animate-pop drop-shadow-2xl italic border-4 border-black p-4 bg-white transform -rotate-6">{effectText}</h1>
           </div>
         </div>
       )}
       {/* 캐릭터 */}
       <div className="absolute bottom-40 w-full flex justify-center pointer-events-none transition-all duration-300 z-10">
-        {char && char.image && <div className="text-[250px] filter drop-shadow-2xl">{char.images ? char.images[char.face || 'normal'] : char.image}</div>}
+        { (pressMode ? pressChar : char) && <div className="text-[250px] filter drop-shadow-2xl">{(pressMode ? pressChar : char).image || (pressMode ? pressChar : char).images[(pressMode ? pressFace : currentLine.face) || 'normal']}</div>}
       </div>
       {/* 심문 표시 */}
       {isCE && (
@@ -494,9 +606,9 @@ export default function AceAttorneyGame() {
         </div>
       )}
       {/* 대화창 */}
-      <div onClick={pressMode ? handlePressNext : handleNext} className={`absolute bottom-0 w-full p-4 md:p-8 z-30 transition-all ${evidenceMode ? 'translate-y-full opacity-0' : 'translate-y-0'}`}>
+      <div onClick={pressMode ? handlePressNext : handleNext} className={`absolute bottom-0 w-full p-4 md:p-8 z-30 transition-all ${evidenceMode || investigateMode || choiceMode ? 'translate-y-full opacity-0' : 'translate-y-0'}`}>
         <div className={`max-w-4xl mx-auto backdrop-blur-md border-4 rounded-xl p-6 min-h-[180px] shadow-2xl relative hover:bg-black/80 cursor-pointer ${isCE ? (isFinal ? 'bg-red-900/80 border-red-400' : 'bg-green-900/80 border-green-400') : 'bg-black/80 border-white/20'}`}>
-          { (pressMode ? pressChar : char) && <div className="absolute -top-5 left-6 bg-blue-600 text-white font-bold px-6 py-1 rounded-t-lg border-2 border-white/20">{(pressMode ? pressChar : char).name}</div>}
+          {(pressMode ? pressChar : char) && <div className="absolute -top-5 left-6 bg-blue-600 text-white font-bold px-6 py-1 rounded-t-lg border-2 border-white/20">{(pressMode ? pressChar : char).name}</div>}
           <p className={`text-xl md:text-2xl font-medium leading-relaxed ${currentLine.color || (isCE ? (isFinal ? 'text-red-100' : 'text-green-200') : 'text-white')} ${currentLine.size || ''}`}>{pressMode ? pressTxt : txt}</p>
           {isCE && !pressMode && (
             <div className="absolute -top-16 right-0 flex gap-4">
@@ -511,6 +623,44 @@ export default function AceAttorneyGame() {
           <ChevronRight className="absolute bottom-4 right-4 animate-bounce text-slate-400" size={32}/>
         </div>
       </div>
+      {/* 선택지 모드 */}
+      {choiceMode && (
+        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center justify-center">
+          <h2 className="text-3xl font-bold mb-8">선택하세요</h2>
+          <div className="grid grid-cols-1 gap-4 max-w-md w-full">
+            {currentLine.options.map((opt, i) => (
+              <button key={i} onClick={() => handleChoice(opt.action)} className="bg-blue-600 hover:bg-blue-500 p-4 rounded-lg text-xl font-bold">
+                {opt.text}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* 조사 모드 */}
+      {investigateMode && (
+        <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center justify-center">
+          <h2 className="text-3xl font-bold mb-8 flex items-center gap-2"><Eye /> 조사할 항목</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl w-full">
+            {currentLine.items.map((item, i) => (
+              <button key={i} onClick={() => handleInvestigate(item)} className="bg-slate-800 p-4 rounded-xl border-2 border-slate-600 hover:border-green-400 hover:bg-slate-700 text-left">
+                <div className="text-xl font-bold">{item.name}</div>
+                <div className="text-sm text-gray-400">{item.desc}</div>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setInvestigateMode(false)} className="mt-8 bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold">닫기</button>
+        </div>
+      )}
+      {/* 장소 이동 버튼 (탐정 파트 시) */}
+      {isInvestigation && (
+        <div className="absolute top-20 right-4 z-20 flex flex-col gap-2">
+          {INVESTIGATION_LOCATIONS.map(loc => (
+            <button key={loc.id} onClick={() => { setCurrentLocation(loc.id); setCurrentBg(loc.bg); const target = script.findIndex(l => l.id === `investigate_${loc.id}`); if (target !== -1) setIndex(target); }} className="bg-purple-600 hover:bg-purple-500 p-2 rounded-lg flex items-center gap-2">
+              <MapPin size={20} /> {loc.name}
+            </button>
+          ))}
+        </div>
+      )}
       {/* 증거창 */}
       {evidenceMode && (
         <div className="absolute inset-0 bg-black/95 z-40 p-8 flex flex-col items-center animate-in slide-in-from-bottom-20">
@@ -520,7 +670,7 @@ export default function AceAttorneyGame() {
               <button onClick={() => setEvidenceMode(false)} className="bg-red-600 hover:bg-red-500 px-6 py-2 rounded-lg font-bold">닫기</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {EVIDENCE.map(item => (
+              {collectedEvidence.map(item => (
                 <button key={item.id} onClick={() => presentEvidence(item.id)} className="bg-slate-800 p-4 rounded-xl border-2 border-slate-600 flex items-center gap-4 hover:border-yellow-400 hover:bg-slate-700 group text-left transition-all">
                   <div className="text-5xl bg-black/30 p-2 rounded-lg">{item.icon}</div>
                   <div>
@@ -536,4 +686,4 @@ export default function AceAttorneyGame() {
       )}
     </div>
   );
-}
+        }
