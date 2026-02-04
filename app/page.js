@@ -1,6 +1,8 @@
+// components/AceAttorneyGame.js
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { Briefcase, ChevronRight, Save, RotateCcw, AlertTriangle, Search, Gavel, Sparkles, MessageSquare, MapPin, Eye } from 'lucide-react';
+// (나머지 코드 동일, 생략. 이전 제공 코드 복사해서 사용)
 // ==================== [1. 통합 캐릭터 및 증거 설정] ====================
 const CHARACTERS = {
   judge: { name: "재판장", image: "👨‍⚖️" },
